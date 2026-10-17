@@ -7,7 +7,7 @@ from pathlib import Path
 # pdfsuite lives in ../src, which is not on sys.path for `python tests/...` or pytest.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from pdfsuite import _find_ghostscript, _find_tesseract, configure_logging, jpeg_to_pdf_merge, ocr_pdf  # noqa: E402
+from pdfsuite import _find_ghostscript, _find_tesseract, configure_logging, images_to_pdf, ocr_pdf  # noqa: E402
 
 
 def _make_test_jpg(path: Path) -> None:
@@ -51,7 +51,7 @@ def _run(out_dir: Path) -> int:
 
     _make_test_jpg(jpg_path)
 
-    if not jpeg_to_pdf_merge(out_dir, jpg_files=[jpg_path.name], output_pdf=input_pdf.name):
+    if not images_to_pdf(out_dir, [jpg_path.name], output_pdf=input_pdf.name):
         print("FAILED: could not create input PDF")
         return 2
 

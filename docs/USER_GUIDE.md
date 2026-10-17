@@ -105,12 +105,12 @@ Type the number of the job you want and press **Enter**. The tool then asks ques
 |---|---|---|---|
 | 1 | **PDF → DOCX** | Turns a PDF into an editable Word document. Works best on PDFs that contain real text (not scans). | Input PDF, output `.docx` |
 | 22 | **DOCX → PDF** | Turns a Word document into a PDF. Needs Microsoft Word or LibreOffice. | Input `.docx`, output PDF |
-| 5 | **Images → PDF** | Combines pictures into one PDF, one picture per page. Works with JPG, PNG, TIFF, BMP, GIF, WebP and HEIC (iPhone photos). JPG, PNG and TIFF keep their full quality; all photos are turned the right way up automatically. | Image folder, output name, optional list of file names |
+| 5 | **Images → PDF** | Combines pictures into one PDF, one picture per page. Works with JPG, PNG, TIFF, BMP, GIF and WebP. JPG, PNG and TIFF keep their full quality; all photos are turned the right way up automatically. | Image folder, output name, optional list of file names |
 | 16 | **PDF → images** | Saves every page as a picture (`page_0001.png`, `page_0002.png`, …). | Input PDF, output folder, DPI, format (`png` or `jpg`) |
 | 7 | **Extract text** | Saves all the text in a PDF to a `.txt` file. Leave the output blank to save it next to the PDF with the same name. | Input PDF, output `.txt` (optional) |
 | 15 | **Extract images** | Saves every picture embedded in the PDF into a folder. | Input PDF, output folder |
 
-**About option 5:** if you leave the file list blank, every picture in the folder is used, in name order (`img2` comes before `img10`). To choose the order yourself, type the names separated by commas: `cover.jpg, page1.png, page2.heic`. If any listed file is missing or can't be read, nothing is created and the tool tells you which one. A multi-page TIFF becomes several pages. Transparent areas (in PNG, GIF or WebP) become white.
+**About option 5:** if you leave the file list blank, every picture in the folder is used, in name order (`img2` comes before `img10`). To choose the order yourself, type the names separated by commas: `cover.jpg, page1.png, page2.jpg`. If any listed file is missing or can't be read, nothing is created and the tool tells you which one. A multi-page TIFF becomes several pages. Transparent areas (in PNG, GIF or WebP) become white.
 
 **About DPI (options 16 and 21):** DPI controls picture sharpness. `150` is good for screens; `300` is good for printing but makes bigger files.
 
@@ -124,7 +124,7 @@ Type the number of the job you want and press **Enter**. The tool then asks ques
 | 11 | **Delete pages** | Removes the pages you choose. You can't delete every page. | Input, output, pages to delete |
 | 12 | **Reorder pages** | Puts pages in a new order. Type the old page numbers in the new order: `3,1,2` makes page 3 first. | Input, output, new order |
 | 24 | **Insert pages** | Adds blank pages, or pages copied from another PDF, at the position you choose. Bookmarks keep pointing at the right pages. | Input, output, position, then either the other PDF and its pages, or how many blank pages |
-| 25 | **Bookmarks** | Shows, adds or edits the bookmarks (the clickable contents list in the side panel of PDF readers). | See below |
+| 25 | **Bookmarks** | Shows or adds bookmarks (the clickable contents list in the side panel of PDF readers). | See below |
 
 **Insert pages:** the position is the page to insert *after*: `0` puts the new pages before page 1, `3` puts them after page 3. Blank pages get the same size as the page before them. For pages from another PDF, leave the page list blank to insert all of them.
 
@@ -132,17 +132,6 @@ Type the number of the job you want and press **Enter**. The tool then asks ques
 
 - `show` lists the bookmarks, indented to show which ones sit under others.
 - `add` adds one bookmark: a title and the page it opens. It is placed in page order.
-- `export` and `import` let you edit all bookmarks in Notepad. Export saves them to a text file like this:
-
-  ```
-  1 Introduction
-  5 Chapter 1
-    6 Section 1.1
-    9 Section 1.2
-  14 Chapter 2
-  ```
-
-  Each line is a page number, a space, then the title. Indent a line by 2 spaces (or a tab) to put it under the line above. Edit, add or delete lines, save, then use `import` to write a new PDF with exactly these bookmarks. An empty file removes all bookmarks. If a line is wrong, the tool tells you its line number.
 
 **Split modes:**
 
@@ -316,7 +305,7 @@ and for the options of one command, add `--help` after it (e.g. `... src\pdfsuit
 | `docx-to-pdf` | 22. DOCX → PDF |
 | `check` | 23. Check setup |
 | `insert-pages` | 24. Insert pages |
-| `bookmarks-show` / `bookmarks-add` / `bookmarks-export` / `bookmarks-import` | 25. Bookmarks |
+| `bookmarks-show` / `bookmarks-add` | 25. Bookmarks |
 | `redact` | 26. Redact text (repeat `--text` for each phrase) |
 | `pdfa` | 27. Save as PDF/A (add `--ocr` to make scans searchable) |
 | `menu` | Opens the menu |

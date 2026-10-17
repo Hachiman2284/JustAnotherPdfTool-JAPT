@@ -329,13 +329,13 @@ def test_jpg_merge_natural_order(tmp_path) -> None:
         pil.new("RGB", size, "white").save(tmp_path / name, format="JPEG")
     (tmp_path / "notes.txt").write_text("not an image")
 
-    assert pdfsuite.jpeg_to_pdf_merge(tmp_path, output_pdf="all.pdf")
+    assert pdfsuite.images_to_pdf(tmp_path, output_pdf="all.pdf")
     with pymupdf.open(str(tmp_path / "all.pdf")) as doc:
         # img2 must come before img10; page heights identify each image.
         heights = [round(p.rect.height / p.rect.width * 100) for p in doc]
     assert heights == [50, 60, 70]
 
-    assert not pdfsuite.jpeg_to_pdf_merge(tmp_path, ["img1.jpg", "missing.jpg"], "x.pdf")
+    assert not pdfsuite.images_to_pdf(tmp_path, ["img1.jpg", "missing.jpg"], "x.pdf")
     assert not (tmp_path / "x.pdf").exists()
 
 
