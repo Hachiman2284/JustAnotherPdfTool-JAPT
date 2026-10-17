@@ -29,8 +29,8 @@ This guide assumes no programming experience. If you can open a folder and doubl
 
 | Program | Needed for | Where to get it |
 |---|---|---|
-| Tesseract OCR | Option 2 (OCR) and batch OCR | [github.com/UB-Mannheim/tesseract/wiki](https://github.com/UB-Mannheim/tesseract/wiki) |
-| Ghostscript | OCR; also gives the best results for Compress | [ghostscript.com/releases](https://ghostscript.com/releases/gsdnld.html) |
+| Tesseract OCR | Option 2 (OCR), batch OCR and option 27 (PDF/A) | [github.com/UB-Mannheim/tesseract/wiki](https://github.com/UB-Mannheim/tesseract/wiki) |
+| Ghostscript | OCR and PDF/A; also gives the best results for Compress | [ghostscript.com/releases](https://ghostscript.com/releases/gsdnld.html) |
 | Microsoft Word *or* LibreOffice | Option 22 (DOCX → PDF) | [libreoffice.org](https://www.libreoffice.org/download/) (free) |
 
 You can skip these and install them later. Every other feature works without them. Install them with their normal installer; you don't need to change any Windows settings (such as PATH), because JAP-T looks in the usual install folders.
@@ -105,12 +105,12 @@ Type the number of the job you want and press **Enter**. The tool then asks ques
 |---|---|---|---|
 | 1 | **PDF → DOCX** | Turns a PDF into an editable Word document. Works best on PDFs that contain real text (not scans). | Input PDF, output `.docx` |
 | 22 | **DOCX → PDF** | Turns a Word document into a PDF. Needs Microsoft Word or LibreOffice. | Input `.docx`, output PDF |
-| 5 | **Merge JPG/JPEG → PDF** | Combines photos into one PDF, one photo per page. Photos keep their full quality and are turned the right way up automatically. | Image folder, output name, optional list of file names |
+| 5 | **Images → PDF** | Combines pictures into one PDF, one picture per page. Works with JPG, PNG, TIFF, BMP, GIF, WebP and HEIC (iPhone photos). JPG, PNG and TIFF keep their full quality; all photos are turned the right way up automatically. | Image folder, output name, optional list of file names |
 | 16 | **PDF → images** | Saves every page as a picture (`page_0001.png`, `page_0002.png`, …). | Input PDF, output folder, DPI, format (`png` or `jpg`) |
 | 7 | **Extract text** | Saves all the text in a PDF to a `.txt` file. Leave the output blank to save it next to the PDF with the same name. | Input PDF, output `.txt` (optional) |
 | 15 | **Extract images** | Saves every picture embedded in the PDF into a folder. | Input PDF, output folder |
 
-**About option 5:** if you leave the file list blank, every `.jpg`/`.jpeg` in the folder is used, in name order (`img2` comes before `img10`). To choose the order yourself, type the names separated by commas: `cover.jpg, page1.jpg, page2.jpg`. If any listed file is missing, nothing is created and the tool tells you which one.
+**About option 5:** if you leave the file list blank, every picture in the folder is used, in name order (`img2` comes before `img10`). To choose the order yourself, type the names separated by commas: `cover.jpg, page1.png, page2.heic`. If any listed file is missing or can't be read, nothing is created and the tool tells you which one. A multi-page TIFF becomes several pages. Transparent areas (in PNG, GIF or WebP) become white.
 
 **About DPI (options 16 and 21):** DPI controls picture sharpness. `150` is good for screens; `300` is good for printing but makes bigger files.
 
@@ -123,6 +123,26 @@ Type the number of the job you want and press **Enter**. The tool then asks ques
 | 10 | **Rotate pages** | Turns pages clockwise by 90, 180 or 270 degrees. Leave pages blank to rotate all of them. | Input, output, angle, pages (optional) |
 | 11 | **Delete pages** | Removes the pages you choose. You can't delete every page. | Input, output, pages to delete |
 | 12 | **Reorder pages** | Puts pages in a new order. Type the old page numbers in the new order: `3,1,2` makes page 3 first. | Input, output, new order |
+| 24 | **Insert pages** | Adds blank pages, or pages copied from another PDF, at the position you choose. Bookmarks keep pointing at the right pages. | Input, output, position, then either the other PDF and its pages, or how many blank pages |
+| 25 | **Bookmarks** | Shows, adds or edits the bookmarks (the clickable contents list in the side panel of PDF readers). | See below |
+
+**Insert pages:** the position is the page to insert *after*: `0` puts the new pages before page 1, `3` puts them after page 3. Blank pages get the same size as the page before them. For pages from another PDF, leave the page list blank to insert all of them.
+
+**Bookmarks** (option 25) asks what you want to do:
+
+- `show` lists the bookmarks, indented to show which ones sit under others.
+- `add` adds one bookmark: a title and the page it opens. It is placed in page order.
+- `export` and `import` let you edit all bookmarks in Notepad. Export saves them to a text file like this:
+
+  ```
+  1 Introduction
+  5 Chapter 1
+    6 Section 1.1
+    9 Section 1.2
+  14 Chapter 2
+  ```
+
+  Each line is a page number, a space, then the title. Indent a line by 2 spaces (or a tab) to put it under the line above. Edit, add or delete lines, save, then use `import` to write a new PDF with exactly these bookmarks. An empty file removes all bookmarks. If a line is wrong, the tool tells you its line number.
 
 **Split modes:**
 
@@ -139,6 +159,7 @@ The tool asks for both a page range and a chunk size every time; it only uses th
 | 6 | **Compress PDF** | Makes the file smaller, mostly by shrinking pictures. If nothing makes it smaller, you get an unchanged copy rather than a bigger file. Works best with Ghostscript installed. |
 | 2 | **OCR PDF** | Reads the text in a scanned PDF so you can search, select and copy it. Needs Tesseract and Ghostscript. |
 | 21 | **Convert selected pages to non-OCR** | The opposite of OCR: turns chosen pages back into plain pictures with no selectable text. Other pages are left alone. |
+| 27 | **Save as PDF/A** | Converts a PDF to PDF/A, the format archives, courts and governments ask for when files must stay readable for decades. Needs Tesseract and Ghostscript. Answer `y` to also make scanned pages searchable. The result can be larger than the original, because PDF/A stores the fonts inside the file. |
 
 **OCR questions explained:**
 
@@ -173,6 +194,20 @@ When the tool asks for the password, **nothing appears on screen as you type**. 
 **Watermark:** *Rotate* is the angle in degrees (45 = diagonal). *Opacity* runs from `0` (invisible) to `1` (solid); `0.15` is a light watermark.
 
 Both options work with non-English text such as Japanese, Chinese, Korean, Russian or Hindi. JAP-T picks a suitable font automatically.
+
+### Removing private information
+
+| # | Option | What it does |
+|---|---|---|
+| 26 | **Redact text** | Permanently removes words or phrases (names, account numbers, addresses) and puts black boxes where they were. |
+
+Type the text to remove; separate several with `|`, for example `John Smith | 12345678`. Upper and lower case don't matter.
+
+Unlike drawing a black box over text, redaction **deletes the text itself**, so it can't be copied, searched or recovered from the new file. Before you share the result, know these limits:
+
+- **Scanned pages** are pictures, so their words can't be found. Run OCR (option 2) first. The tool tells you which pages had no text.
+- **Hidden details**: the title, author and bookmarks are not pages, so redaction doesn't change them. The tool warns you if your text appears there; fix it with options 18 and 25.
+- Always open the result and check it. If no matches are found, no file is created.
 
 ### Information and metadata
 
@@ -263,7 +298,7 @@ and for the options of one command, add `--help` after it (e.g. `... src\pdfsuit
 | `ocr` | 2. OCR PDF |
 | `merge` | 3. Merge PDFs |
 | `split` | 4. Split PDF |
-| `jpg-merge` | 5. JPG → PDF |
+| `images-to-pdf` (or the older `jpg-merge`) | 5. Images → PDF |
 | `compress` | 6. Compress |
 | `extract-text` | 7. Extract text |
 | `encrypt` / `decrypt` | 8 / 9. Passwords |
@@ -280,6 +315,10 @@ and for the options of one command, add `--help` after it (e.g. `... src\pdfsuit
 | `deocr-pages` | 21. Non-OCR pages |
 | `docx-to-pdf` | 22. DOCX → PDF |
 | `check` | 23. Check setup |
+| `insert-pages` | 24. Insert pages |
+| `bookmarks-show` / `bookmarks-add` / `bookmarks-export` / `bookmarks-import` | 25. Bookmarks |
+| `redact` | 26. Redact text (repeat `--text` for each phrase) |
+| `pdfa` | 27. Save as PDF/A (add `--ocr` to make scans searchable) |
 | `menu` | Opens the menu |
 
 Add `--log-level WARNING` before the command name to see only warnings and errors, or `--log-level DEBUG` to see extra detail when something goes wrong.
@@ -295,6 +334,8 @@ Add `--log-level WARNING` before the command name to see only warnings and error
 | `Missing dependency: …` | Run `setupEnv.bat` again to reinstall everything. |
 | OCR fails or mentions Tesseract or Ghostscript | Install both (see [What you need](#1-what-you-need)), then close and reopen JAP-T. Option **23) Check setup** shows whether they were found. |
 | `Prior OCR/text detected` | The PDF already has text. Answer `y` to **Force OCR**, or `y` to **Skip existing text**. |
+| PDF/A fails with `needs Tesseract and Ghostscript` | Install both (see [What you need](#1-what-you-need)). PDF/A uses them even when it doesn't OCR anything. |
+| `None of the text was found` (redact) | Check the spelling. If the page is a scan, run OCR (option 2) first, then redact the OCR result. |
 | `No conversion backend available` (DOCX → PDF) | Install Microsoft Word or LibreOffice. Option **23) Check setup** shows whether either was found. |
 | `File has not been decrypted` / password errors | Use option 9 to remove the password first, then run the job on the unlocked file. |
 | `Incorrect password` | Passwords are case-sensitive. Check Caps Lock. |

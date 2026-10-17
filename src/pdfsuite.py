@@ -1,5 +1,6 @@
 import argparse
 import getpass
+import io
 import json
 import logging
 import os
@@ -446,24 +447,63 @@ def merge_pdfs(pdf_paths: Sequence[str | Path], output_pdf: str | Path) -> bool:
         return False
 
 
-def jpeg_to_pdf_merge(
+# Image types images_to_pdf picks up from a folder.
+_IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".gif", ".webp", ".heic", ".heif")
+
+
+def _image_for_img2pdf(path: Path) -> str | bytes:
+    """Return what img2pdf should embed for one image file.
+
+    img2pdf embeds JPEG, and PNG/TIFF without transparency, as-is (no quality
+    loss). Anything else (BMP, GIF, WebP, HEIC, or images with transparency)
+    is converted to PNG with Pillow first; transparent areas become white.
+    """
+    if path.suffix.lower() in {".jpg", ".jpeg"}:
+        return str(path)
+
+    from PIL import Image, ImageOps
+
+    with Image.open(path) as img:
+        has_alpha = "A" in img.getbands() or "transparency" in img.info
+        if img.format in {"PNG", "TIFF"} and not has_alpha:
+            return str(path)
+
+        dpi = img.info.get("dpi")
+        converted = ImageOps.exif_transpose(img)
+        if has_alpha:
+            rgba = converted.convert("RGBA")
+            converted = Image.new("RGB", rgba.size, "white")
+            converted.paste(rgba, mask=rgba.getchannel("A"))
+        elif converted.mode not in {"RGB", "L"}:
+            converted = converted.convert("RGB")
+
+        buf = io.BytesIO()
+        converted.save(buf, format="PNG", **({"dpi": dpi} if dpi else {}))
+        return buf.getvalue()
+
+
+def images_to_pdf(
     image_folder: str | Path,
-    jpg_files: Sequence[str] | None = None,
+    image_files: Sequence[str] | None = None,
     output_pdf: str | Path = "merged_output.pdf",
 ) -> bool:
-    """Convert JPG/JPEG images into a single multi-page PDF.
+    """Combine images into a single PDF, one image per page.
+
+    Supports JPG, PNG, TIFF, BMP, GIF, WebP and HEIC/HEIF (iPhone photos).
 
     Args:
         image_folder: Folder containing images.
-        jpg_files: Optional list of filenames (order is preserved). If None, uses all .jpg/.jpeg in folder.
+        image_files: Optional list of filenames (order is preserved). If None,
+            uses every supported image in the folder, in natural name order.
         output_pdf: Output PDF path. If relative, it is created inside image_folder.
 
     Returns:
         True if successful, otherwise False.
 
     Notes:
-        Requires the third-party package `img2pdf`. JPEG data is embedded as-is
-        (no lossy re-encode) and EXIF orientation is applied.
+        Requires the third-party packages `img2pdf` and `pillow` (`pi_heif`
+        for HEIC). JPEG data is embedded as-is (no lossy re-encode) and EXIF
+        orientation is applied.
     """
     image_folder = _as_path(image_folder)
     output_pdf = _as_path(output_pdf)
@@ -481,44 +521,65 @@ def jpeg_to_pdf_merge(
         return False
 
     try:
-        if jpg_files is None:
-            jpg_files = sorted(
+        # Lets Pillow open HEIC/HEIF photos; other formats work without it.
+        from pi_heif import register_heif_opener
+
+        register_heif_opener()
+    except ModuleNotFoundError:
+        logger.debug("pi_heif not available; HEIC images are not supported")
+
+    try:
+        if image_files is None:
+            image_files = sorted(
                 (
                     p.name
                     for p in image_folder.iterdir()
-                    if p.is_file() and p.suffix.lower() in {".jpg", ".jpeg"}
+                    if p.is_file() and p.suffix.lower() in _IMAGE_SUFFIXES
                 ),
                 key=_natural_sort_key,
             )
 
-        if not jpg_files:
-            logger.error("No JPG/JPEG files found in: %s", image_folder)
+        if not image_files:
+            logger.error("No images found in: %s", image_folder)
             return False
 
         # Explicitly listed files must all exist; silently skipping one would
         # produce a PDF with pages missing.
-        missing = [name for name in jpg_files if not (image_folder / name).is_file()]
+        missing = [name for name in image_files if not (image_folder / name).is_file()]
         if missing:
             logger.error("Images not found in %s: %s", image_folder, ", ".join(missing))
             return False
 
-        image_paths: list[str] = []
-        for filename in jpg_files:
+        images: list[str | bytes] = []
+        for filename in image_files:
             img_path = image_folder / filename
-            image_paths.append(str(img_path))
+            try:
+                images.append(_image_for_img2pdf(img_path))
+            except Exception as exc:
+                logger.error("Cannot read image %s: %s", img_path.name, exc)
+                return False
             logger.info("Added image: %s", img_path.name)
 
-        # img2pdf embeds the compressed JPEG bytes directly instead of holding
+        # img2pdf embeds the compressed image bytes directly instead of holding
         # decoded bitmaps in memory and re-encoding them.
-        pdf_bytes = img2pdf.convert(image_paths, rotation=img2pdf.Rotation.ifvalid)
+        pdf_bytes = img2pdf.convert(images, rotation=img2pdf.Rotation.ifvalid)
         _ensure_parent_dir(output_pdf)
         with open(output_pdf, "wb") as f:
             f.write(pdf_bytes)
-        logger.info("Created PDF: %s (%d pages)", output_pdf, len(image_paths))
+        logger.info("Created PDF: %s (%d images)", output_pdf, len(images))
         return True
     except Exception as exc:
-        logger.error("JPG->PDF merge failed: %s", exc)
+        logger.error("Images->PDF failed: %s", exc)
         return False
+
+
+def jpeg_to_pdf_merge(
+    image_folder: str | Path,
+    jpg_files: Sequence[str] | None = None,
+    output_pdf: str | Path = "merged_output.pdf",
+) -> bool:
+    """Older name for images_to_pdf, kept so existing scripts keep working."""
+    return images_to_pdf(image_folder, jpg_files, output_pdf)
 
 
 def split_pdf(
@@ -1511,6 +1572,406 @@ def set_pdf_metadata(input_pdf: str | Path, output_pdf: str | Path, metadata: di
         return False
 
 
+def insert_pages_pdf(
+    input_pdf: str | Path,
+    output_pdf: str | Path,
+    *,
+    after: int,
+    source_pdf: str | Path | None = None,
+    source_pages: str | None = None,
+    blank_count: int = 1,
+) -> bool:
+    """Insert blank pages, or pages from another PDF, at a chosen position.
+
+    Args:
+        input_pdf: Input PDF.
+        output_pdf: Output PDF.
+        after: Insert after this page (1-based); 0 inserts before the first page.
+        source_pdf: PDF to take pages from. If None, blank pages are inserted.
+        source_pages: Page selection in source_pdf, e.g. "1-3,6". None = all pages.
+        blank_count: Number of blank pages (when source_pdf is None). Blank
+            pages get the size of the page they follow (or of page 1).
+
+    Returns:
+        True if successful, otherwise False.
+    """
+    input_pdf = _as_path(input_pdf)
+    output_pdf = _as_path(output_pdf)
+    if not input_pdf.exists():
+        logger.error("Input PDF not found: %s", input_pdf)
+        return False
+    if source_pdf is not None and not _as_path(source_pdf).exists():
+        logger.error("PDF to insert not found: %s", source_pdf)
+        return False
+    if source_pdf is None and blank_count <= 0:
+        logger.error("Number of blank pages must be at least 1")
+        return False
+
+    try:
+        from pypdf import PdfReader, PdfWriter
+    except ModuleNotFoundError:
+        logger.error("Missing dependency: pypdf (install with `pip install pypdf`)")
+        return False
+
+    try:
+        # Clone (not add_page) so bookmarks, form fields and metadata are kept.
+        writer = PdfWriter(clone_from=PdfReader(str(input_pdf)))
+        total = len(writer.pages)
+        if not 0 <= after <= total:
+            logger.error("Position must be between 0 and %d (the number of pages)", total)
+            return False
+
+        if source_pdf is None:
+            box = writer.pages[max(after, 1) - 1].mediabox
+            for _ in range(blank_count):
+                writer.insert_blank_page(float(box.width), float(box.height), index=after)
+            what = f"{blank_count} blank page(s)"
+        else:
+            source = PdfReader(str(source_pdf))
+            if source_pages:
+                indices = _parse_page_selection(source_pages, total_pages=len(source.pages))
+            else:
+                indices = list(range(len(source.pages)))
+            writer.merge(after, source, pages=indices, import_outline=False)
+            what = f"{len(indices)} page(s) from {_as_path(source_pdf).name}"
+
+        _ensure_parent_dir(output_pdf)
+        with open(output_pdf, "wb") as f:
+            writer.write(f)
+        logger.info("Inserted %s after page %d -> %s", what, after, output_pdf)
+        return True
+    except ValueError as exc:
+        logger.error("Invalid page selection: %s", exc)
+        return False
+    except Exception as exc:
+        logger.error("Insert pages failed: %s", exc)
+        return False
+
+
+_BOOKMARKS_FILE_HEADER = """\
+# JAP-T bookmarks. One bookmark per line: the page number, a space, then the title.
+# Indent a line by 2 spaces (or a tab) to put it under the bookmark above it.
+# Lines starting with # are ignored.
+"""
+
+
+def get_bookmarks(input_pdf: str | Path) -> list[tuple[int, str, int]] | None:
+    """Return a PDF's bookmarks as (level, title, page) tuples (level and page 1-based).
+
+    Bookmarks that point nowhere have page <= 0.
+    """
+    input_pdf = _as_path(input_pdf)
+    if not input_pdf.exists():
+        logger.error("Input PDF not found: %s", input_pdf)
+        return None
+
+    try:
+        import pymupdf
+    except ModuleNotFoundError:
+        logger.error("Missing dependency: pymupdf (install with `pip install pymupdf`)")
+        return None
+
+    try:
+        with pymupdf.open(str(input_pdf)) as doc:
+            return [(int(level), str(title), int(page)) for level, title, page, *_ in doc.get_toc()]
+    except Exception as exc:
+        logger.error("Reading bookmarks failed: %s", exc)
+        return None
+
+
+def show_bookmarks(input_pdf: str | Path) -> bool:
+    """Log a PDF's bookmarks as an indented list."""
+    bookmarks = get_bookmarks(input_pdf)
+    if bookmarks is None:
+        return False
+    if not bookmarks:
+        logger.info("This PDF has no bookmarks.")
+    for level, title, page in bookmarks:
+        logger.info("%s%s (page %s)", "  " * (level - 1), title, page if page > 0 else "none")
+    return True
+
+
+def _write_bookmarks(input_pdf: Path, output_pdf: Path, toc: list[list]) -> bool:
+    """Replace the bookmarks of input_pdf with toc and save to output_pdf."""
+    import pymupdf
+
+    with pymupdf.open(str(input_pdf)) as doc:
+        doc.set_toc(toc)
+        _ensure_parent_dir(output_pdf)
+        doc.save(str(output_pdf), garbage=1)
+    return True
+
+
+def add_bookmark(input_pdf: str | Path, output_pdf: str | Path, title: str, page: int) -> bool:
+    """Add a top-level bookmark, keeping top-level bookmarks in page order.
+
+    Args:
+        input_pdf: Input PDF.
+        output_pdf: Output PDF.
+        title: Bookmark title.
+        page: Page the bookmark opens (1-based).
+
+    Returns:
+        True if successful, otherwise False.
+    """
+    input_pdf = _as_path(input_pdf)
+    output_pdf = _as_path(output_pdf)
+    if not title.strip():
+        logger.error("The bookmark title cannot be empty")
+        return False
+    bookmarks = get_bookmarks(input_pdf)
+    if bookmarks is None:
+        return False
+
+    try:
+        total = pdf_page_count(input_pdf)
+        if total is None:
+            return False
+        if not 1 <= page <= total:
+            logger.error("Page must be between 1 and %d", total)
+            return False
+
+        toc = [list(b) for b in bookmarks]
+        # Insert before the first top-level bookmark on a later page, so the
+        # new one lands in reading order together with its predecessor's children.
+        pos = next((i for i, (level, _, p) in enumerate(toc) if level == 1 and p > page), len(toc))
+        toc.insert(pos, [1, title.strip(), page])
+        _write_bookmarks(input_pdf, output_pdf, toc)
+        logger.info("Added bookmark %r -> page %d -> %s", title.strip(), page, output_pdf)
+        return True
+    except Exception as exc:
+        logger.error("Adding bookmark failed: %s", exc)
+        return False
+
+
+def export_bookmarks(input_pdf: str | Path, output_txt: str | Path) -> bool:
+    """Write a PDF's bookmarks to a text file that import_bookmarks can read back.
+
+    Edit the file (e.g. in Notepad) and import it to change the bookmarks.
+    """
+    output_txt = _as_path(output_txt)
+    bookmarks = get_bookmarks(input_pdf)
+    if bookmarks is None:
+        return False
+
+    try:
+        lines = [_BOOKMARKS_FILE_HEADER]
+        for level, title, page in bookmarks:
+            if page <= 0:
+                logger.warning("Bookmark %r does not point to a page; left out", title)
+                continue
+            lines.append(f"{'  ' * (level - 1)}{page} {title}\n")
+        _ensure_parent_dir(output_txt)
+        output_txt.write_text("".join(lines), encoding="utf-8")
+        logger.info("Exported %d bookmark(s) -> %s", len(lines) - 1, output_txt)
+        return True
+    except Exception as exc:
+        logger.error("Exporting bookmarks failed: %s", exc)
+        return False
+
+
+def _parse_bookmarks_text(text: str, *, total_pages: int) -> list[list]:
+    """Parse the export_bookmarks text format into a PyMuPDF table of contents.
+
+    Raises:
+        ValueError: With the line number, if a line is invalid.
+    """
+    toc: list[list] = []
+    for line_no, raw in enumerate(text.splitlines(), start=1):
+        if not raw.strip() or raw.lstrip().startswith("#"):
+            continue
+        indent = raw[: len(raw) - len(raw.lstrip())]
+        level = indent.count("\t") + indent.count(" ") // 2 + 1
+        parts = raw.strip().split(maxsplit=1)
+        if len(parts) < 2 or not parts[0].isdigit():
+            raise ValueError(f"line {line_no}: expected '<page> <title>', got {raw.strip()!r}")
+        page = int(parts[0])
+        if not 1 <= page <= total_pages:
+            raise ValueError(f"line {line_no}: page {page} is out of range (1..{total_pages})")
+        prev_level = toc[-1][0] if toc else 0
+        if level > prev_level + 1:
+            raise ValueError(f"line {line_no}: indented too far (more than one step under the line above)")
+        toc.append([level, parts[1], page])
+    return toc
+
+
+def import_bookmarks(input_pdf: str | Path, output_pdf: str | Path, bookmarks_txt: str | Path) -> bool:
+    """Replace a PDF's bookmarks with those in a text file (format of export_bookmarks).
+
+    An empty file (or one with only comments) removes all bookmarks.
+    """
+    input_pdf = _as_path(input_pdf)
+    output_pdf = _as_path(output_pdf)
+    bookmarks_txt = _as_path(bookmarks_txt)
+    if not input_pdf.exists():
+        logger.error("Input PDF not found: %s", input_pdf)
+        return False
+    if not bookmarks_txt.exists():
+        logger.error("Bookmarks file not found: %s", bookmarks_txt)
+        return False
+
+    try:
+        import pymupdf  # noqa: F401
+    except ModuleNotFoundError:
+        logger.error("Missing dependency: pymupdf (install with `pip install pymupdf`)")
+        return False
+
+    try:
+        total = pdf_page_count(input_pdf)
+        if total is None:
+            return False
+        # utf-8-sig: Notepad may add a byte-order mark.
+        toc = _parse_bookmarks_text(bookmarks_txt.read_text(encoding="utf-8-sig"), total_pages=total)
+        _write_bookmarks(input_pdf, output_pdf, toc)
+        logger.info("Imported %d bookmark(s) -> %s", len(toc), output_pdf)
+        return True
+    except ValueError as exc:
+        logger.error("Invalid bookmarks file: %s", exc)
+        return False
+    except Exception as exc:
+        logger.error("Importing bookmarks failed: %s", exc)
+        return False
+
+
+def redact_text_pdf(input_pdf: str | Path, output_pdf: str | Path, terms: Sequence[str]) -> int | None:
+    """Permanently remove every occurrence of some text, leaving black boxes.
+
+    Unlike drawing a box over text, the text itself is deleted from the
+    page, so it cannot be copied, searched or recovered. Images under the
+    boxes are blanked too. Matching ignores upper/lower case.
+
+    Args:
+        input_pdf: Input PDF.
+        output_pdf: Output PDF.
+        terms: Words or phrases to remove.
+
+    Returns:
+        Number of areas removed, or None on failure or when nothing matched
+        (then no output is written).
+    """
+    input_pdf = _as_path(input_pdf)
+    output_pdf = _as_path(output_pdf)
+    terms = [t.strip() for t in terms if t and t.strip()]
+    if not input_pdf.exists():
+        logger.error("Input PDF not found: %s", input_pdf)
+        return None
+    if not terms:
+        logger.error("Enter the text to remove")
+        return None
+
+    try:
+        import pymupdf
+    except ModuleNotFoundError:
+        logger.error("Missing dependency: pymupdf (install with `pip install pymupdf`)")
+        return None
+
+    try:
+        with pymupdf.open(str(input_pdf)) as doc:
+            count = 0
+            no_text_pages: list[int] = []
+            for page in doc:
+                if not page.get_text("text").strip():
+                    # Only pages with pictures can hide text; blank pages can't.
+                    if page.get_images():
+                        no_text_pages.append(page.number + 1)
+                    continue
+                for term in terms:
+                    for rect in page.search_for(term):
+                        page.add_redact_annot(rect, fill=(0, 0, 0))
+                        count += 1
+                page.apply_redactions()
+
+            if no_text_pages:
+                logger.warning(
+                    "Pages with no text layer (scanned?) were skipped: %s. "
+                    "Text inside images can't be found; run OCR first.",
+                    ", ".join(map(str, no_text_pages)),
+                )
+            if count == 0:
+                logger.error("None of the text was found, so nothing was written.")
+                return None
+
+            leftover = [t for t in terms for page in doc if t.lower() in page.get_text("text").lower()]
+            if leftover:
+                logger.warning(
+                    "Some text could still be found after redaction (e.g. split across lines): %s",
+                    ", ".join(sorted(set(leftover))),
+                )
+            # Text in the document details or bookmarks is not on a page, so
+            # redaction does not reach it; point it out instead of hiding it.
+            hidden_places = [str(v) for v in (doc.metadata or {}).values() if v] + [
+                str(entry[1]) for entry in doc.get_toc()
+            ]
+            if any(t.lower() in v.lower() for t in terms for v in hidden_places):
+                logger.warning(
+                    "The text also appears in the document details or bookmarks, which "
+                    "redaction does not change. Check them with options 17 and 25."
+                )
+
+            _ensure_parent_dir(output_pdf)
+            # garbage=4 drops the replaced page content so it isn't left in the file.
+            doc.save(str(output_pdf), garbage=4, deflate=True)
+        logger.info("Redacted %d area(s) -> %s", count, output_pdf)
+        return count
+    except Exception as exc:
+        logger.error("Redaction failed: %s", exc)
+        return None
+
+
+def convert_to_pdfa(input_pdf: str | Path, output_pdf: str | Path, *, ocr: bool = False) -> bool:
+    """Convert a PDF to PDF/A-2b, the standard for long-term archiving.
+
+    Args:
+        input_pdf: Input PDF.
+        output_pdf: Output PDF/A.
+        ocr: Also make pages without text searchable (OCR). Pages that already
+            have text are never OCRed.
+
+    Returns:
+        True if successful, otherwise False.
+
+    Notes:
+        Uses `ocrmypdf`, which needs Tesseract and Ghostscript installed even
+        when ocr is False.
+    """
+    input_pdf = _as_path(input_pdf)
+    output_pdf = _as_path(output_pdf)
+    if not input_pdf.exists():
+        logger.error("Input PDF not found: %s", input_pdf)
+        return False
+
+    try:
+        import ocrmypdf
+        from ocrmypdf.exceptions import EncryptedPdfError, MissingDependencyError
+    except ModuleNotFoundError:
+        logger.error("Missing dependency: ocrmypdf (install with `pip install ocrmypdf`)")
+        return False
+
+    kwargs: dict[str, object] = {"output_type": "pdfa", "skip_text": True}
+    if not ocr:
+        # A zero timeout makes ocrmypdf skip OCR entirely.
+        kwargs["tesseract_timeout"] = 0
+    try:
+        _ensure_parent_dir(output_pdf)
+        result = ocrmypdf.ocr(str(input_pdf), str(output_pdf), **kwargs)
+        if result != ocrmypdf.ExitCode.ok:
+            logger.error("PDF/A conversion failed with exit code %s", getattr(result, "name", result))
+            return False
+        logger.info("Saved as PDF/A -> %s", output_pdf)
+        return True
+    except MissingDependencyError as exc:
+        logger.error(
+            "PDF/A needs Tesseract and Ghostscript installed (menu option 23 checks): %s", exc
+        )
+        return False
+    except EncryptedPdfError:
+        logger.error("The PDF is password-protected. Remove the password first (option 9).")
+        return False
+    except Exception as exc:
+        logger.error("PDF/A conversion failed: %s", exc)
+        return False
+
+
 # Batch operations: output filename suffix, the function that runs it, and
 # the extra options it accepts (passed through as keyword arguments).
 _BATCH_OPERATIONS: dict[str, tuple[str, Callable[..., object], tuple[str, ...]]] = {
@@ -1755,7 +2216,7 @@ def check_setup() -> int:
     else:
         report(
             "WARN",
-            "Tesseract OCR not found. OCR (options 2 and 20) will not work. "
+            "Tesseract OCR not found. OCR (options 2 and 20) and PDF/A (option 27) will not work. "
             "Get it from https://github.com/UB-Mannheim/tesseract/wiki",
         )
 
@@ -1765,7 +2226,7 @@ def check_setup() -> int:
     else:
         report(
             "WARN",
-            "Ghostscript not found. OCR will not work, and Compress saves less. "
+            "Ghostscript not found. OCR and PDF/A will not work, and Compress saves less. "
             "Get it from https://ghostscript.com/releases/gsdnld.html",
         )
 
@@ -1826,7 +2287,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--out-dir", default=".")
     p.add_argument("--prefix", default="")
 
-    p = sub.add_parser("jpg-merge", help="Merge JPG/JPEG to a PDF")
+    # "jpg-merge" is the older name, kept so existing scripts keep working.
+    p = sub.add_parser(
+        "images-to-pdf",
+        aliases=["jpg-merge"],
+        help="Combine images (JPG, PNG, TIFF, BMP, GIF, WebP, HEIC) into a PDF",
+    )
     p.add_argument("--folder", required=True)
     p.add_argument("--out", dest="output_pdf", default="merged_output.pdf")
     p.add_argument("--files", nargs="*", default=None, help="Optional filenames (ordered)")
@@ -1907,6 +2373,42 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("info", help="Show quick PDF info")
     p.add_argument("--in", dest="input_pdf", required=True)
+
+    p = sub.add_parser("insert-pages", help="Insert blank pages or pages from another PDF")
+    p.add_argument("--in", dest="input_pdf", required=True)
+    p.add_argument("--out", dest="output_pdf", required=True)
+    p.add_argument("--after", type=int, required=True, help="Insert after this page (0 = before page 1)")
+    p.add_argument("--from", dest="source_pdf", default=None, help="PDF to take pages from (default: blank pages)")
+    p.add_argument("--pages", dest="source_pages", default=None, help='Pages of --from to insert, e.g. "1-3"; default all')
+    p.add_argument("--blank", dest="blank_count", type=int, default=1, help="Number of blank pages (without --from)")
+
+    p = sub.add_parser("bookmarks-show", help="List a PDF's bookmarks")
+    p.add_argument("--in", dest="input_pdf", required=True)
+
+    p = sub.add_parser("bookmarks-add", help="Add a bookmark")
+    p.add_argument("--in", dest="input_pdf", required=True)
+    p.add_argument("--out", dest="output_pdf", required=True)
+    p.add_argument("--title", required=True)
+    p.add_argument("--page", type=int, required=True)
+
+    p = sub.add_parser("bookmarks-export", help="Save bookmarks to an editable text file")
+    p.add_argument("--in", dest="input_pdf", required=True)
+    p.add_argument("--out", dest="output_txt", required=True)
+
+    p = sub.add_parser("bookmarks-import", help="Replace bookmarks with those in a text file")
+    p.add_argument("--in", dest="input_pdf", required=True)
+    p.add_argument("--out", dest="output_pdf", required=True)
+    p.add_argument("--file", dest="bookmarks_txt", required=True, help="Text file in the bookmarks-export format")
+
+    p = sub.add_parser("redact", help="Permanently remove text")
+    p.add_argument("--in", dest="input_pdf", required=True)
+    p.add_argument("--out", dest="output_pdf", required=True)
+    p.add_argument("--text", dest="terms", action="append", required=True, help="Text to remove; repeat for more")
+
+    p = sub.add_parser("pdfa", help="Save as PDF/A for long-term archiving")
+    p.add_argument("--in", dest="input_pdf", required=True)
+    p.add_argument("--out", dest="output_pdf", required=True)
+    p.add_argument("--ocr", action="store_true", help="Also make scanned pages searchable")
 
     p = sub.add_parser("batch", help="Batch process a folder")
     p.add_argument("--folder", required=True)
@@ -2063,7 +2565,7 @@ def interactive_menu() -> int:
         print("2) OCR PDF")
         print("3) Merge PDFs")
         print("4) Split PDF")
-        print("5) Merge JPG/JPEG -> PDF")
+        print("5) Images (JPG/PNG/...) -> PDF")
         print("6) Compress PDF")
         print("7) Extract text")
         print("8) Encrypt PDF")
@@ -2082,6 +2584,10 @@ def interactive_menu() -> int:
         print("21) Convert selected pages to non-OCR")
         print("22) DOCX -> PDF")
         print("23) Check setup")
+        print("24) Insert pages")
+        print("25) Bookmarks (show/add/export/import)")
+        print("26) Redact (permanently remove) text")
+        print("27) Save as PDF/A (archiving)")
         print("0) Exit")
 
         try:
@@ -2169,7 +2675,7 @@ def _run_menu_choice(choice: str) -> int | None:
         folder = _prompt_path("Image folder")
         out = _prompt_output("Output PDF", default="merged_output.pdf", base_dir=folder)
         files = _prompt_path_list("Filenames (comma-separated, optional)", default="") or None
-        return 0 if jpeg_to_pdf_merge(folder, files, out) else 1
+        return 0 if images_to_pdf(folder, files, out) else 1
 
     if choice == "6":
         inp = _prompt_path("Input PDF")
@@ -2321,6 +2827,54 @@ def _run_menu_choice(choice: str) -> int | None:
     if choice == "23":
         return check_setup()
 
+    if choice == "24":
+        inp = _prompt_path("Input PDF")
+        out = _prompt_output("Output PDF", inputs=[inp])
+        after = _prompt_int("Insert after page (0 = before the first page)", default=0)
+        if _prompt("Insert pages from another PDF? (y = another PDF, n = blank pages)", default="n").lower().startswith("y"):
+            src = _prompt_path("PDF to take pages from")
+            src_pages = _prompt("Pages to take (optional, e.g. 1-3,6; blank = all)", default="")
+            ok = insert_pages_pdf(inp, out, after=after, source_pdf=src, source_pages=src_pages or None)
+        else:
+            count = _prompt_int("How many blank pages", default=1)
+            ok = insert_pages_pdf(inp, out, after=after, blank_count=count)
+        return 0 if ok else 1
+
+    if choice == "25":
+        action = _prompt("Action (show/add/export/import)", default="show").strip().lower()
+        if action == "show":
+            return 0 if show_bookmarks(_prompt_path("Input PDF")) else 1
+        if action == "add":
+            inp = _prompt_path("Input PDF")
+            out = _prompt_output("Output PDF", inputs=[inp])
+            title = _prompt("Bookmark title")
+            page = _prompt_int("Page it opens")
+            return 0 if add_bookmark(inp, out, title, page) else 1
+        if action == "export":
+            inp = _prompt_path("Input PDF")
+            out = _prompt_output("Output text file (e.g. bookmarks.txt)", inputs=[inp])
+            return 0 if export_bookmarks(inp, out) else 1
+        if action == "import":
+            inp = _prompt_path("Input PDF")
+            txt = _prompt_path("Bookmarks text file")
+            out = _prompt_output("Output PDF", inputs=[inp, txt])
+            return 0 if import_bookmarks(inp, out, txt) else 1
+        logger.error("Unknown action: %s", action)
+        return 1
+
+    if choice == "26":
+        inp = _prompt_path("Input PDF")
+        out = _prompt_output("Output PDF", inputs=[inp])
+        raw = _prompt("Text to remove (separate several with |)")
+        terms = [t.strip() for t in raw.split("|") if t.strip()]
+        return 0 if redact_text_pdf(inp, out, terms) is not None else 1
+
+    if choice == "27":
+        inp = _prompt_path("Input PDF")
+        out = _prompt_output("Output PDF/A", inputs=[inp])
+        ocr = _prompt("Also make scanned pages searchable (OCR)? (y/n)", default="n").lower().startswith("y")
+        return 0 if convert_to_pdfa(inp, out, ocr=ocr) else 1
+
     logger.error("Unknown choice: %s", choice)
     return None
 
@@ -2374,8 +2928,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             prefix=args.prefix,
         ) else 1
 
-    if cmd == "jpg-merge":
-        return 0 if jpeg_to_pdf_merge(args.folder, args.files, args.output_pdf) else 1
+    if cmd in ("images-to-pdf", "jpg-merge"):
+        return 0 if images_to_pdf(args.folder, args.files, args.output_pdf) else 1
 
     if cmd == "compress":
         return 0 if compress_pdf(args.input_pdf, args.output_pdf) else 1
@@ -2461,6 +3015,35 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if cmd == "info":
         return _show_pdf_info(args.input_pdf)
+
+    if cmd == "insert-pages":
+        ok = insert_pages_pdf(
+            args.input_pdf,
+            args.output_pdf,
+            after=args.after,
+            source_pdf=args.source_pdf,
+            source_pages=args.source_pages,
+            blank_count=args.blank_count,
+        )
+        return 0 if ok else 1
+
+    if cmd == "bookmarks-show":
+        return 0 if show_bookmarks(args.input_pdf) else 1
+
+    if cmd == "bookmarks-add":
+        return 0 if add_bookmark(args.input_pdf, args.output_pdf, args.title, args.page) else 1
+
+    if cmd == "bookmarks-export":
+        return 0 if export_bookmarks(args.input_pdf, args.output_txt) else 1
+
+    if cmd == "bookmarks-import":
+        return 0 if import_bookmarks(args.input_pdf, args.output_pdf, args.bookmarks_txt) else 1
+
+    if cmd == "redact":
+        return 0 if redact_text_pdf(args.input_pdf, args.output_pdf, args.terms) is not None else 1
+
+    if cmd == "pdfa":
+        return 0 if convert_to_pdfa(args.input_pdf, args.output_pdf, ocr=args.ocr) else 1
 
     if cmd == "batch":
         result = batch_process_folder(
