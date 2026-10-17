@@ -33,7 +33,7 @@ This guide assumes no programming experience. If you can open a folder and doubl
 | Ghostscript | OCR; also gives the best results for Compress | [ghostscript.com/releases](https://ghostscript.com/releases/gsdnld.html) |
 | Microsoft Word *or* LibreOffice | Option 22 (DOCX → PDF) | [libreoffice.org](https://www.libreoffice.org/download/) (free) |
 
-You can skip these and install them later. Every other feature works without them.
+You can skip these and install them later. Every other feature works without them. Install them with their normal installer; you don't need to change any Windows settings (such as PATH), because JAP-T looks in the usual install folders.
 
 ---
 
@@ -44,7 +44,16 @@ You only do this once.
 1. Download or copy the JAP-T folder somewhere on your computer, for example `C:\Tools\JAP-T`.
 2. Open the folder and **double-click `setupEnv.bat`**.
 3. A black window opens and installs everything JAP-T needs. This takes a few minutes the first time.
-4. When it finishes, the JAP-T menu appears. Setup is done.
+4. When it finishes, it shows a short **setup check** (see below), then the JAP-T menu appears. Setup is done.
+
+The setup check lists what is ready and what is missing, for example:
+
+```
+[ OK ] Python packages
+[WARN] Tesseract OCR not found. OCR (options 2 and 20) will not work. Get it from ...
+```
+
+`OK` means ready. `WARN` means one feature won't work until you install the program it names; everything else still works. `FAIL` means setup did not finish: run `setupEnv.bat` again. You can run the same check at any time with menu option **23) Check setup**, for example after installing Tesseract.
 
 > **Tip:** If Windows shows "Windows protected your PC", click **More info → Run anyway**. This happens because the file was downloaded from the internet.
 
@@ -148,6 +157,8 @@ The tool asks for both a page range and a chunk size every time; it only uses th
 | 8 | **Encrypt PDF** | Adds a password. Anyone opening the file must type it. Uses strong AES-256 encryption. |
 | 9 | **Decrypt PDF** | Removes the password from a PDF you have the password for. |
 
+When the tool asks for the password, **nothing appears on screen as you type**. This is normal: it stops people nearby from reading it. Type it and press **Enter**. When you add a password (option 8), you type it twice, so a typo can't lock the file.
+
 > **Warning:** If you forget the password of an encrypted PDF, there is no way to recover it. Keep the unencrypted original somewhere safe.
 
 ### Adding text to pages
@@ -170,6 +181,7 @@ Both options work with non-English text such as Japanese, Chinese, Korean, Russi
 | 19 | **PDF info** | Shows how many pages a PDF has and whether it is password-protected. |
 | 17 | **Show metadata** | Shows hidden document details: title, author, creating program, dates. |
 | 18 | **Set metadata** | Changes those details. Details you don't mention are kept. |
+| 23 | **Check setup** | Shows which optional programs are installed and which features need something extra. |
 
 **Set metadata** expects a short piece of text in this exact format (called JSON):
 
@@ -226,6 +238,8 @@ venv\Scripts\python.exe src\pdfsuite.py batch --folder C:\Scans --op ocr --lang 
 
 Put paths that contain spaces in quotes: `--in "C:\My Files\report.pdf"`.
 
+For `encrypt` and `decrypt`, leave out `--password` and the tool asks for it without showing it. If you do type `--password`, the password can be saved in your command history.
+
 To see every command, run:
 
 ```bat
@@ -256,6 +270,7 @@ and for the options of one command, add `--help` after it (e.g. `... src\pdfsuit
 | `batch` | 20. Batch folder |
 | `deocr-pages` | 21. Non-OCR pages |
 | `docx-to-pdf` | 22. DOCX → PDF |
+| `check` | 23. Check setup |
 | `menu` | Opens the menu |
 
 Add `--log-level WARNING` before the command name to see only warnings and errors, or `--log-level DEBUG` to see extra detail when something goes wrong.
@@ -269,9 +284,9 @@ Add `--log-level WARNING` before the command name to see only warnings and error
 | `Python is not installed.` during setup | Install Python and tick **"Add python.exe to PATH"**. Then restart your computer and run `setupEnv.bat` again. |
 | `Input PDF not found` | Check the spelling of the path. Use **Copy as path** in File Explorer to avoid typos. |
 | `Missing dependency: …` | Run `setupEnv.bat` again to reinstall everything. |
-| OCR fails or mentions Tesseract or Ghostscript | Install both (see [What you need](#1-what-you-need)), then close and reopen JAP-T. |
+| OCR fails or mentions Tesseract or Ghostscript | Install both (see [What you need](#1-what-you-need)), then close and reopen JAP-T. Option **23) Check setup** shows whether they were found. |
 | `Prior OCR/text detected` | The PDF already has text. Answer `y` to **Force OCR**, or `y` to **Skip existing text**. |
-| `No conversion backend available` (DOCX → PDF) | Install Microsoft Word or LibreOffice. |
+| `No conversion backend available` (DOCX → PDF) | Install Microsoft Word or LibreOffice. Option **23) Check setup** shows whether either was found. |
 | `File has not been decrypted` / password errors | Use option 9 to remove the password first, then run the job on the unlocked file. |
 | `Incorrect password` | Passwords are case-sensitive. Check Caps Lock. |
 | `page … out of bounds` | You asked for a page beyond the end of the PDF. Use option 19 to check how many pages it has. |

@@ -1,4 +1,5 @@
 import argparse
+import getpass
 import json
 import logging
 import os
@@ -67,6 +68,86 @@ def _save_dropping_unsupported_kwargs(obj: object, path: Path, kwargs: dict) -> 
             if not m or m.group(1) not in current:
                 raise
             current.pop(m.group(1))
+
+
+_IS_WINDOWS = os.name == "nt"
+
+
+def _windows_program_dirs() -> list[Path]:
+    """Folders Windows installers usually put programs in (all-users and per-user)."""
+    dirs: list[Path] = []
+    for var in ("ProgramFiles", "ProgramW6432", "ProgramFiles(x86)"):
+        value = os.environ.get(var)
+        if value:
+            dirs.append(Path(value))
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        dirs.append(Path(local) / "Programs")
+    unique: list[Path] = []
+    for d in dirs:
+        if d not in unique:
+            unique.append(d)
+    return unique
+
+
+def _find_program(names: Sequence[str], windows_patterns: Sequence[str] = ()) -> str | None:
+    """Find a program on PATH, or on Windows in the usual install folders.
+
+    Many Windows installers (Ghostscript, LibreOffice) do not add themselves
+    to PATH, so PATH alone misses them.
+
+    Args:
+        names: Executable names to look up on PATH, in order of preference.
+        windows_patterns: Glob patterns relative to each Program Files folder,
+            e.g. "gs/*/bin/gswin64c.exe". When several match, the one with the
+            highest version-like name wins.
+
+    Returns:
+        Full path to the program, or None if not found.
+    """
+    for name in names:
+        resolved = shutil.which(name)
+        if resolved:
+            return resolved
+    if not _IS_WINDOWS:
+        return None
+    for base in _windows_program_dirs():
+        for pattern in windows_patterns:
+            matches = sorted(base.glob(pattern), key=lambda p: _natural_sort_key(str(p)))
+            if matches:
+                return str(matches[-1])
+    return None
+
+
+def _find_ghostscript() -> str | None:
+    """Find the Ghostscript console program (gswin64c/gswin32c on Windows)."""
+    return _find_program(
+        ("gswin64c", "gswin32c", "gs"),
+        ("gs/*/bin/gswin64c.exe", "gs/*/bin/gswin32c.exe"),
+    )
+
+
+def _find_tesseract() -> str | None:
+    """Find Tesseract OCR."""
+    return _find_program(("tesseract",), ("Tesseract-OCR/tesseract.exe",))
+
+
+def _find_soffice() -> str | None:
+    """Find LibreOffice's command-line program."""
+    return _find_program(("soffice", "libreoffice"), ("LibreOffice/program/soffice.exe",))
+
+
+def _word_installed() -> bool | None:
+    """Whether Microsoft Word is registered for automation (None when not on Windows)."""
+    if not _IS_WINDOWS:
+        return None
+    try:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, "Word.Application"):
+            return True
+    except OSError:
+        return False
 
 
 def _parse_metadata_json(raw: str) -> dict[str, str]:
@@ -174,8 +255,8 @@ def docx_to_pdf(input_docx: str | Path, output_pdf: str | Path) -> bool:
     """Convert a DOCX file to PDF.
 
     This tries the `docx2pdf` Python package first (recommended on Windows
-    where it uses Microsoft Word). If unavailable, it falls back to a
-    headless LibreOffice (`soffice`) conversion.
+    where it uses Microsoft Word). If Word is not installed, or docx2pdf
+    fails, it falls back to a headless LibreOffice (`soffice`) conversion.
     """
     input_docx = _as_path(input_docx)
     output_pdf = _as_path(output_pdf)
@@ -183,27 +264,31 @@ def docx_to_pdf(input_docx: str | Path, output_pdf: str | Path) -> bool:
         logger.error("Input DOCX not found: %s", input_docx)
         return False
 
-    # Try docx2pdf first
-    try:
-        from docx2pdf import convert
-
-        _ensure_parent_dir(output_pdf)
+    # docx2pdf drives Microsoft Word, so only try it where Word can exist
+    # (Windows with Word registered, or macOS).
+    if sys.platform == "darwin" or _word_installed():
         try:
-            # docx2pdf accepts (input, output) where output may be a folder
-            convert(str(input_docx), str(output_pdf))
-            # docx2pdf can return without raising when Word fails to export.
-            if output_pdf.is_file():
-                logger.info("Converted DOCX -> PDF via docx2pdf: %s", output_pdf)
-                return True
-            logger.warning("docx2pdf did not produce %s", output_pdf)
-        except Exception as exc:
-            logger.warning("docx2pdf conversion failed: %s", exc)
-    except ModuleNotFoundError:
-        logger.debug("docx2pdf not available, will try LibreOffice")
+            from docx2pdf import convert
+
+            _ensure_parent_dir(output_pdf)
+            try:
+                # docx2pdf accepts (input, output) where output may be a folder
+                convert(str(input_docx), str(output_pdf))
+                # docx2pdf can return without raising when Word fails to export.
+                if output_pdf.is_file():
+                    logger.info("Converted DOCX -> PDF via docx2pdf: %s", output_pdf)
+                    return True
+                logger.warning("docx2pdf did not produce %s", output_pdf)
+            except Exception as exc:
+                logger.warning("docx2pdf conversion failed: %s", exc)
+        except ModuleNotFoundError:
+            logger.debug("docx2pdf not available, will try LibreOffice")
+    else:
+        logger.debug("Microsoft Word not found, will try LibreOffice")
 
     # Fallback: LibreOffice/soffice (headless). Create output in a temporary
     # directory and move the resulting file to the requested path.
-    soffice = shutil.which("soffice") or shutil.which("libreoffice")
+    soffice = _find_soffice()
     if not soffice:
         logger.error(
             "No conversion backend available. Install `docx2pdf` or LibreOffice (soffice)."
@@ -573,14 +658,6 @@ def compress_pdf(input_pdf: str | Path, output_pdf: str | Path) -> bool:
             )
         else:
             logger.info("Compressed via %s -> %s", method, output_pdf)
-
-    def _find_ghostscript() -> str | None:
-        # On Windows the common console executables are gswin64c/gswin32c.
-        for exe in ("gswin64c", "gswin32c", "gs"):
-            resolved = shutil.which(exe)
-            if resolved:
-                return resolved
-        return None
 
     def _run_ghostscript(profile: str, out_path: Path) -> bool:
         gs = _find_ghostscript()
@@ -1586,6 +1663,70 @@ def _parse_page_selection(selection: str, *, total_pages: int, clamp_end: bool =
     return indices
 
 
+# Python packages from requirements.txt that features import at run time.
+_FEATURE_PACKAGES = ("pymupdf", "pypdf", "pikepdf", "img2pdf", "pdf2docx", "ocrmypdf")
+
+
+def check_setup() -> int:
+    """Print which features are ready and what is missing for the rest.
+
+    Returns:
+        1 if Python packages are missing (setup did not finish), otherwise 0.
+        Missing optional programs only produce warnings.
+    """
+    import importlib.util
+
+    # Printed (not logged) so the report shows at any --log-level.
+    def report(status: str, message: str) -> None:
+        print(f"[{status:^4}] {message}")
+
+    print("\nJAP-T setup check")
+    rc = 0
+    report("OK", f"Python {sys.version.split()[0]}")
+
+    missing = [name for name in _FEATURE_PACKAGES if importlib.util.find_spec(name) is None]
+    if missing:
+        report("FAIL", f"Missing Python packages: {', '.join(missing)}. Run setupEnv.bat again.")
+        rc = 1
+    else:
+        report("OK", "Python packages")
+
+    tesseract = _find_tesseract()
+    if tesseract:
+        report("OK", f"Tesseract OCR: {tesseract}")
+    else:
+        report(
+            "WARN",
+            "Tesseract OCR not found. OCR (options 2 and 20) will not work. "
+            "Get it from https://github.com/UB-Mannheim/tesseract/wiki",
+        )
+
+    gs = _find_ghostscript()
+    if gs:
+        report("OK", f"Ghostscript: {gs}")
+    else:
+        report(
+            "WARN",
+            "Ghostscript not found. OCR will not work, and Compress saves less. "
+            "Get it from https://ghostscript.com/releases/gsdnld.html",
+        )
+
+    word = _word_installed() and importlib.util.find_spec("docx2pdf") is not None
+    soffice = _find_soffice()
+    if word:
+        report("OK", "DOCX -> PDF: Microsoft Word")
+    if soffice:
+        report("OK", f"DOCX -> PDF: LibreOffice ({soffice})")
+    if not word and not soffice:
+        report(
+            "WARN",
+            "DOCX -> PDF (option 22) needs Microsoft Word or LibreOffice; neither was found. "
+            "Get LibreOffice free from https://www.libreoffice.org/download/",
+        )
+
+    return rc
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     """Create the CLI argument parser."""
     parser = argparse.ArgumentParser(prog="pdfsuite", description="Small PDF utility suite")
@@ -1594,6 +1735,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("menu", help="Interactive menu runner")
+    sub.add_parser("check", help="Check which features are ready and what is missing")
 
     p = sub.add_parser("docx", help="Convert PDF to DOCX")
     p.add_argument("--in", dest="input_pdf", required=True)
@@ -1642,12 +1784,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("encrypt", help="Encrypt PDF")
     p.add_argument("--in", dest="input_pdf", required=True)
     p.add_argument("--out", dest="output_pdf", required=True)
-    p.add_argument("--password", required=True)
+    p.add_argument("--password", default=None, help="Password. Omit it to be asked without the password showing on screen (a password typed here can be saved in your command history).")
 
     p = sub.add_parser("decrypt", help="Decrypt PDF")
     p.add_argument("--in", dest="input_pdf", required=True)
     p.add_argument("--out", dest="output_pdf", required=True)
-    p.add_argument("--password", required=True)
+    p.add_argument("--password", default=None, help="Password. Omit it to be asked without the password showing on screen (a password typed here can be saved in your command history).")
 
     p = sub.add_parser("rotate", help="Rotate PDF pages")
     p.add_argument("--in", dest="input_pdf", required=True)
@@ -1755,6 +1897,26 @@ def _prompt_float(value_name: str, *, default: float | None = None) -> float:
             logger.error("Invalid number: %s", raw)
 
 
+def _prompt_password(*, new: bool = False) -> str:
+    """Ask for a password without showing it on screen.
+
+    Args:
+        new: True when setting a password. It must not be empty and is
+            asked twice so a typo cannot lock the file.
+    """
+    while True:
+        pw = getpass.getpass("Password (hidden as you type): ")
+        if not new:
+            return pw
+        if not pw:
+            logger.error("The password cannot be empty.")
+            continue
+        if getpass.getpass("Type the password again: ") != pw:
+            logger.error("The passwords do not match. Try again.")
+            continue
+        return pw
+
+
 def _strip_quotes(value: str) -> str:
     """Remove one pair of matching quotes around a value.
 
@@ -1851,6 +2013,7 @@ def interactive_menu() -> int:
         print("20) Batch folder")
         print("21) Convert selected pages to non-OCR")
         print("22) DOCX -> PDF")
+        print("23) Check setup")
         print("0) Exit")
 
         try:
@@ -1954,13 +2117,13 @@ def _run_menu_choice(choice: str) -> int | None:
     if choice == "8":
         inp = _prompt_path("Input PDF")
         out = _prompt_output("Output encrypted PDF", inputs=[inp])
-        pw = _prompt("Password")
+        pw = _prompt_password(new=True)
         return 0 if encrypt_pdf(inp, out, pw) is not None else 1
 
     if choice == "9":
         inp = _prompt_path("Input PDF")
         out = _prompt_output("Output decrypted PDF", inputs=[inp])
-        pw = _prompt("Password")
+        pw = _prompt_password()
         return 0 if decrypt_pdf(inp, out, pw) is not None else 1
 
     if choice == "10":
@@ -2067,6 +2230,9 @@ def _run_menu_choice(choice: str) -> int | None:
         dpi = _prompt_int("DPI", default=150)
         return 0 if deocr_selected_pages(inp, out, pages, dpi=dpi) else 1
 
+    if choice == "23":
+        return check_setup()
+
     logger.error("Unknown choice: %s", choice)
     return None
 
@@ -2085,6 +2251,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     cmd = args.cmd
     if cmd == "menu":
         return interactive_menu()
+    if cmd == "check":
+        return check_setup()
     if cmd == "docx":
         return 0 if pdf_to_docx(args.input_pdf, args.output_docx) else 1
 
@@ -2129,11 +2297,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if out is not None else 1
 
     if cmd == "encrypt":
-        out = encrypt_pdf(args.input_pdf, args.output_pdf, args.password)
+        try:
+            password = args.password if args.password is not None else _prompt_password(new=True)
+        except (KeyboardInterrupt, EOFError):
+            print("\nCancelled.")
+            return 1
+        out = encrypt_pdf(args.input_pdf, args.output_pdf, password)
         return 0 if out is not None else 1
 
     if cmd == "decrypt":
-        out = decrypt_pdf(args.input_pdf, args.output_pdf, args.password)
+        try:
+            password = args.password if args.password is not None else _prompt_password()
+        except (KeyboardInterrupt, EOFError):
+            print("\nCancelled.")
+            return 1
+        out = decrypt_pdf(args.input_pdf, args.output_pdf, password)
         return 0 if out is not None else 1
 
     if cmd == "rotate":
