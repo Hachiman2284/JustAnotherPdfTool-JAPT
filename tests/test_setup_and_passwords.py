@@ -375,21 +375,70 @@ def test_docx_word_silent_failure_falls_back_to_libreoffice(monkeypatch, tmp_pat
     assert out.read_bytes() == b"%PDF-1.4 from libreoffice"
 
 
-def test_libreoffice_runs_isolated_with_time_limit(monkeypatch, tmp_path) -> None:
+def _fake_soffice_runs(monkeypatch, writes_on: set[int]) -> list:
+    """Replace subprocess.run with a fake LibreOffice that writes the PDF on the given call numbers."""
     import subprocess
 
-    seen: dict = {}
+    calls: list = []
 
     def fake_run(cmd, **kwargs):
-        seen["cmd"], seen["kwargs"] = cmd, kwargs
+        calls.append((cmd, kwargs))
+        if len(calls) in writes_on:
+            out_dir = Path(cmd[cmd.index("--outdir") + 1])
+            (out_dir / (Path(cmd[-1]).stem + ".pdf")).write_bytes(b"%PDF-1.4")
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
     monkeypatch.setattr(pdfsuite, "_find_soffice", lambda: "soffice")
     monkeypatch.setattr(pdfsuite.subprocess, "run", fake_run)
+    return calls
+
+
+def test_libreoffice_runs_isolated_with_time_limit(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "appdata"))
+    out_dir = tmp_path / "work"
+    out_dir.mkdir()
+    calls = _fake_soffice_runs(monkeypatch, writes_on={1})
+    assert pdfsuite._convert_with_libreoffice(tmp_path / "a.docx", out_dir)
+    cmd, kwargs = calls[0]
+    profile = next(arg for arg in cmd if arg.startswith("-env:UserInstallation="))
+    # JAP-T's own profile, kept in AppData between runs, not inside the temporary folder.
+    assert profile == "-env:UserInstallation=" + (tmp_path / "appdata" / "JAP-T" / "libreoffice-profile").as_uri()
+    assert kwargs["timeout"] == pdfsuite._LIBREOFFICE_TIMEOUT_SECONDS
+    assert kwargs["encoding"] == "utf-8" and kwargs["errors"] == "replace"
+
+
+def test_libreoffice_first_run_without_pdf_is_retried(monkeypatch, tmp_path) -> None:
+    calls = _fake_soffice_runs(monkeypatch, writes_on={2})
     assert pdfsuite._convert_with_libreoffice(tmp_path / "a.docx", tmp_path)
-    assert any(arg.startswith("-env:UserInstallation=file:") for arg in seen["cmd"])
-    assert seen["kwargs"]["timeout"] == pdfsuite._LIBREOFFICE_TIMEOUT_SECONDS
-    assert seen["kwargs"]["encoding"] == "utf-8" and seen["kwargs"]["errors"] == "replace"
+    assert len(calls) == 2
+
+
+def test_libreoffice_no_pdf_after_retry_fails(monkeypatch, tmp_path, caplog) -> None:
+    calls = _fake_soffice_runs(monkeypatch, writes_on=set())
+    assert not pdfsuite._convert_with_libreoffice(tmp_path / "a.docx", tmp_path)
+    assert len(calls) == 2
+    assert "did not produce a PDF" in caplog.text
+
+
+def test_docx_temp_folder_cleanup_errors_ignored(monkeypatch, tmp_path) -> None:
+    # A LibreOffice helper can keep a file open in the temporary folder on Windows;
+    # failing to delete it must not turn a finished conversion into an error.
+    import tempfile
+
+    used: dict = {}
+    real = tempfile.TemporaryDirectory
+
+    def recording(*args, **kwargs):
+        used.update(kwargs)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(pdfsuite.tempfile, "TemporaryDirectory", recording)
+    monkeypatch.setattr(pdfsuite, "_word_installed", lambda: False)
+    _fake_soffice_runs(monkeypatch, writes_on={1})
+    src = tmp_path / "a.docx"
+    src.write_bytes(b"")
+    assert pdfsuite.docx_to_pdf(src, tmp_path / "a.pdf")
+    assert used.get("ignore_cleanup_errors") is True
 
 
 def test_libreoffice_timeout_reported(monkeypatch, tmp_path, caplog) -> None:
@@ -408,6 +457,8 @@ def test_libreoffice_timeout_reported(monkeypatch, tmp_path, caplog) -> None:
 def test_docx_to_pdf_with_real_libreoffice(monkeypatch, tmp_path) -> None:
     docx = pytest.importorskip("docx")
     monkeypatch.setattr(pdfsuite, "_word_installed", lambda: False)
+    # A brand-new LibreOffice profile, as on the very first conversion on a PC.
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "appdata"))
     doc = docx.Document()
     doc.add_paragraph("Hello from a Word document")
     src = tmp_path / "Résumé, final.docx"  # accented letters and a comma in the name

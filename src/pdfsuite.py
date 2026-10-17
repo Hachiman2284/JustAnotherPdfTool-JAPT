@@ -335,7 +335,9 @@ def docx_to_pdf(input_docx: str | Path, output_pdf: str | Path) -> bool:
         # Both converters write into a fresh temporary folder, and the result is
         # moved to output_pdf only once it exists. Checking output_pdf itself
         # would mistake an older file at that path for a successful conversion.
-        with tempfile.TemporaryDirectory() as tmp_name:
+        # ignore_cleanup_errors: a LibreOffice helper process can still hold a
+        # file here for a moment, which must not turn success into failure.
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_name:
             tmp = Path(tmp_name)
             produced = tmp / (input_docx.stem + ".pdf")
             backend = None
@@ -362,9 +364,6 @@ def docx_to_pdf(input_docx: str | Path, output_pdf: str | Path) -> bool:
                 produced.unlink(missing_ok=True)
                 if not _convert_with_libreoffice(input_docx, tmp):
                     return False
-                if not produced.is_file():
-                    logger.error("LibreOffice did not produce a PDF for %s", input_docx.name)
-                    return False
                 backend = "LibreOffice"
 
             _ensure_parent_dir(output_pdf)
@@ -376,47 +375,70 @@ def docx_to_pdf(input_docx: str | Path, output_pdf: str | Path) -> bool:
         return False
 
 
+def _libreoffice_profile_dir() -> Path:
+    """JAP-T's own LibreOffice profile folder, kept between runs."""
+    base = os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()
+    return Path(base) / "JAP-T" / "libreoffice-profile"
+
+
 def _convert_with_libreoffice(input_docx: Path, out_dir: Path) -> bool:
-    """Convert input_docx to PDF in out_dir with headless LibreOffice."""
+    """Convert input_docx to out_dir/<name>.pdf with headless LibreOffice.
+
+    Returns:
+        True only if the PDF was written.
+    """
     soffice = _find_soffice()
     if not soffice:
         logger.error("No conversion backend available. Install Microsoft Word or LibreOffice.")
         return False
 
-    # A separate, throwaway profile: with the normal one, an already-open
-    # LibreOffice window takes over the job and nothing is written.
-    profile = (out_dir / "libreoffice-profile").as_uri()
+    # JAP-T's own profile: with the normal one, an already-open LibreOffice
+    # window takes over the job and nothing is written. It is kept between
+    # runs because setting up a new profile is slow.
+    profile = _libreoffice_profile_dir()
     cmd = [
         soffice,
-        f"-env:UserInstallation={profile}",
+        f"-env:UserInstallation={profile.as_uri()}",
         "--headless",
+        "--norestore",
         "--convert-to",
         "pdf",
         "--outdir",
         str(out_dir),
         str(input_docx),
     ]
-    try:
-        # LibreOffice prints UTF-8 (e.g. non-English file names), not the
-        # Windows code page, so decode it explicitly and never fail on it.
-        completed = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=_LIBREOFFICE_TIMEOUT_SECONDS,
-        )
-    except subprocess.TimeoutExpired:
-        logger.error(
-            "LibreOffice did not finish within %d seconds and was stopped.",
-            _LIBREOFFICE_TIMEOUT_SECONDS,
-        )
-        return False
-    if completed.returncode != 0:
-        logger.error("LibreOffice conversion failed: %s", (completed.stderr or completed.stdout).strip())
-        return False
-    return True
+    expected = out_dir / (input_docx.stem + ".pdf")
+    output = ""
+    # The first run with a new profile only sets the profile up and may exit
+    # without converting, so a run that writes nothing is tried once more.
+    for _attempt in range(2):
+        try:
+            # LibreOffice prints UTF-8 (e.g. non-English file names), not the
+            # Windows code page, so decode it explicitly and never fail on it.
+            completed = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=_LIBREOFFICE_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired:
+            logger.error(
+                "LibreOffice did not finish within %d seconds and was stopped.",
+                _LIBREOFFICE_TIMEOUT_SECONDS,
+            )
+            return False
+        output = (completed.stderr or completed.stdout or "").strip()
+        if completed.returncode != 0:
+            logger.error("LibreOffice conversion failed: %s", output)
+            return False
+        if expected.is_file():
+            return True
+        logger.debug("LibreOffice finished without writing %s; trying again", expected.name)
+
+    logger.error("LibreOffice did not produce a PDF for %s. %s", input_docx.name, output)
+    return False
 
 
 def ocr_pdf(
