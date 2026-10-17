@@ -328,3 +328,90 @@ def test_docx_to_pdf_uses_word_only_when_installed(monkeypatch, tmp_path, word) 
 
     assert ok is word
     assert len(calls) == (1 if word else 0)
+
+
+def _fake_docx2pdf(monkeypatch, writes: bool) -> list:
+    import types
+
+    calls: list = []
+
+    def convert(src: str, out: str) -> None:
+        calls.append(out)
+        if writes:
+            Path(out).write_bytes(b"%PDF-1.4 from word")
+
+    monkeypatch.setitem(sys.modules, "docx2pdf", types.SimpleNamespace(convert=convert))
+    monkeypatch.setattr(pdfsuite.sys, "platform", "win32")
+    monkeypatch.setattr(pdfsuite, "_word_installed", lambda: True)
+    return calls
+
+
+def test_docx_old_output_is_not_mistaken_for_success(monkeypatch, tmp_path) -> None:
+    # Word "succeeds" without writing anything and LibreOffice is missing:
+    # the old PDF at the output path must not count as a conversion.
+    _fake_docx2pdf(monkeypatch, writes=False)
+    monkeypatch.setattr(pdfsuite, "_find_soffice", lambda: None)
+    src = tmp_path / "report.docx"
+    src.write_bytes(b"")
+    old = tmp_path / "report.pdf"
+    old.write_bytes(b"%PDF-1.4 old")
+    assert pdfsuite.docx_to_pdf(src, old) is False
+    assert old.read_bytes() == b"%PDF-1.4 old"
+
+
+def test_docx_word_silent_failure_falls_back_to_libreoffice(monkeypatch, tmp_path) -> None:
+    _fake_docx2pdf(monkeypatch, writes=False)
+
+    def fake_libreoffice(input_docx: Path, out_dir: Path) -> bool:
+        (out_dir / (input_docx.stem + ".pdf")).write_bytes(b"%PDF-1.4 from libreoffice")
+        return True
+
+    monkeypatch.setattr(pdfsuite, "_convert_with_libreoffice", fake_libreoffice)
+    src = tmp_path / "report.docx"
+    src.write_bytes(b"")
+    out = tmp_path / "report.pdf"
+    out.write_bytes(b"%PDF-1.4 old")
+    assert pdfsuite.docx_to_pdf(src, out) is True
+    assert out.read_bytes() == b"%PDF-1.4 from libreoffice"
+
+
+def test_libreoffice_runs_isolated_with_time_limit(monkeypatch, tmp_path) -> None:
+    import subprocess
+
+    seen: dict = {}
+
+    def fake_run(cmd, **kwargs):
+        seen["cmd"], seen["kwargs"] = cmd, kwargs
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(pdfsuite, "_find_soffice", lambda: "soffice")
+    monkeypatch.setattr(pdfsuite.subprocess, "run", fake_run)
+    assert pdfsuite._convert_with_libreoffice(tmp_path / "a.docx", tmp_path)
+    assert any(arg.startswith("-env:UserInstallation=file:") for arg in seen["cmd"])
+    assert seen["kwargs"]["timeout"] == pdfsuite._LIBREOFFICE_TIMEOUT_SECONDS
+    assert seen["kwargs"]["encoding"] == "utf-8" and seen["kwargs"]["errors"] == "replace"
+
+
+def test_libreoffice_timeout_reported(monkeypatch, tmp_path, caplog) -> None:
+    import subprocess
+
+    def hang(cmd, **kwargs):
+        raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
+
+    monkeypatch.setattr(pdfsuite, "_find_soffice", lambda: "soffice")
+    monkeypatch.setattr(pdfsuite.subprocess, "run", hang)
+    assert not pdfsuite._convert_with_libreoffice(tmp_path / "a.docx", tmp_path)
+    assert "did not finish" in caplog.text
+
+
+@pytest.mark.skipif(pdfsuite._find_soffice() is None, reason="needs LibreOffice")
+def test_docx_to_pdf_with_real_libreoffice(monkeypatch, tmp_path) -> None:
+    docx = pytest.importorskip("docx")
+    monkeypatch.setattr(pdfsuite, "_word_installed", lambda: False)
+    doc = docx.Document()
+    doc.add_paragraph("Hello from a Word document")
+    src = tmp_path / "Résumé, final.docx"  # accented letters and a comma in the name
+    doc.save(str(src))
+    out = tmp_path / "out" / "result.pdf"
+    assert pdfsuite.docx_to_pdf(src, out)
+    assert "Hello from a Word document" in pdfsuite.pymupdf.open(str(out))[0].get_text()
