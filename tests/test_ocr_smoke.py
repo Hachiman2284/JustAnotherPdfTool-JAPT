@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 from pathlib import Path
 
-from pdfsuite import configure_logging, jpeg_to_pdf_merge, ocr_pdf
+# pdfsuite lives in ../src, which is not on sys.path for `python tests/...` or pytest.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from pdfsuite import configure_logging, jpeg_to_pdf_merge, ocr_pdf  # noqa: E402
 
 
 def _make_test_jpg(path: Path) -> None:
@@ -16,8 +20,9 @@ def _make_test_jpg(path: Path) -> None:
     draw = ImageDraw.Draw(img)
     text = "OCR SMOKE TEST 123\nThe quick brown fox jumps over 13 lazy dogs."
 
-    # Use default font to avoid platform font dependencies.
-    font = ImageFont.load_default()
+    # Pillow's bundled font at a size Tesseract reads reliably (the bare
+    # load_default() bitmap font is only ~10px tall).
+    font = ImageFont.load_default(size=48)
     draw.multiline_text((40, 40), text, fill="black", font=font, spacing=10)
 
     img.save(path, format="JPEG", quality=95)
@@ -35,10 +40,11 @@ def _extract_pdf_text(pdf_path: Path) -> str:
 
 def main() -> int:
     configure_logging("INFO")
+    with tempfile.TemporaryDirectory(prefix="ocr_smoke_") as tmp:
+        return _run(Path(tmp))
 
-    out_dir = Path(__file__).resolve().parent / "Personal" / "_ocr_smoke"
-    out_dir.mkdir(parents=True, exist_ok=True)
 
+def _run(out_dir: Path) -> int:
     jpg_path = out_dir / "page1.jpg"
     input_pdf = out_dir / "input.pdf"
     output_pdf = out_dir / "output_ocr.pdf"
@@ -67,6 +73,11 @@ def main() -> int:
 
     print("OK: OCR smoke test passed")
     return 0
+
+
+def test_ocr_smoke() -> None:
+    """pytest entry point (the script entry point is main())."""
+    assert main() == 0
 
 
 if __name__ == "__main__":

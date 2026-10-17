@@ -38,10 +38,96 @@ def _as_path(value: str | Path) -> Path:
 
 
 def _bytes_like_to_str(value: str | bytes | memoryview) -> str:
-    """Convert bytes-like values to a UTF-8 string."""
+    """Convert bytes-like values to a UTF-8 string.
+
+    Raises:
+        UnicodeDecodeError: If the bytes are not valid UTF-8. Silently dropping
+            bytes would change (or empty) a password.
+    """
     if isinstance(value, str):
         return value
-    return bytes(value).decode("utf-8", errors="ignore")
+    return bytes(value).decode("utf-8")
+
+
+def _natural_sort_key(name: str) -> list[int | str]:
+    """Sort key that orders embedded numbers numerically ("img2" before "img10")."""
+    return [int(part) if part.isdigit() else part.lower() for part in re.split(r"(\d+)", name)]
+
+
+def _save_dropping_unsupported_kwargs(obj: object, path: Path, kwargs: dict) -> None:
+    """Call obj.save(path, **kwargs), dropping kwargs the installed library version rejects."""
+    save_fn = getattr(obj, "save")
+    current = dict(kwargs)
+    while True:
+        try:
+            save_fn(str(path), **current)
+            return
+        except TypeError as exc:
+            m = re.search(r"unexpected keyword argument '([^']+)'", str(exc))
+            if not m or m.group(1) not in current:
+                raise
+            current.pop(m.group(1))
+
+
+def _parse_metadata_json(raw: str) -> dict[str, str]:
+    """Parse a JSON object of PDF metadata into a str->str dict.
+
+    Raises:
+        ValueError: If the JSON is invalid or not an object.
+    """
+    md = json.loads(raw)
+    if not isinstance(md, dict):
+        raise ValueError("metadata must be a JSON object")
+    return {str(k): str(v) for k, v in md.items()}
+
+
+def _fill_page_placeholders(template: str, *, page: int, pages: int) -> str:
+    """Replace {page}/{pages} without str.format, so other braces are kept literally."""
+    return template.replace("{pages}", str(pages)).replace("{page}", str(page))
+
+
+# Fonts with wide Unicode coverage, tried in order for text the built-in
+# Helvetica cannot encode. PyMuPDF's bundled CJK font is the last resort.
+_UNICODE_FONT_CANDIDATES = (
+    r"C:\Windows\Fonts\arial.ttf",
+    r"C:\Windows\Fonts\segoeui.ttf",
+    r"C:\Windows\Fonts\Nirmala.ttc",
+    r"C:\Windows\Fonts\YuGothM.ttc",
+    r"C:\Windows\Fonts\msgothic.ttc",
+    r"C:\Windows\Fonts\msyh.ttc",
+    r"C:\Windows\Fonts\malgun.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+    "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+)
+
+
+def _pick_font(pymupdf: object, text: str) -> tuple[dict, object]:
+    """Choose a font able to render `text`.
+
+    Returns:
+        (insert_text font kwargs, pymupdf.Font for measuring the text).
+    """
+    try:
+        text.encode("latin-1")
+        return {"fontname": "helv"}, pymupdf.Font("helv")
+    except UnicodeEncodeError:
+        pass
+
+    needed = {ord(ch) for ch in text if not ch.isspace()}
+    for candidate in _UNICODE_FONT_CANDIDATES:
+        if not os.path.isfile(candidate):
+            continue
+        try:
+            font = pymupdf.Font(fontfile=candidate)
+        except Exception:
+            continue
+        if all(font.has_glyph(cp) for cp in needed):
+            logger.debug("Using font %s for non-Latin text", candidate)
+            return {"fontname": "unifont", "fontfile": candidate}, font
+
+    logger.debug("No system font covers the text; using PyMuPDF's CJK font")
+    return {"fontname": "japan"}, pymupdf.Font("japan")
 
 
 def pdf_to_docx(input_pdf: str | Path, output_docx: str | Path) -> bool:
@@ -69,16 +155,19 @@ def pdf_to_docx(input_pdf: str | Path, output_docx: str | Path) -> bool:
         logger.error("Missing dependency: pdf2docx (install with `pip install pdf2docx`)")
         return False
 
+    cv = None
     try:
         _ensure_parent_dir(output_docx)
         cv = Converter(str(input_pdf))
         cv.convert(str(output_docx))
-        cv.close()
         logger.info("Converted PDF -> DOCX: %s", output_docx)
         return True
     except Exception as exc:
         logger.error("PDF->DOCX failed: %s", exc)
         return False
+    finally:
+        if cv is not None:
+            cv.close()
 
 
 def docx_to_pdf(input_docx: str | Path, output_pdf: str | Path) -> bool:
@@ -102,8 +191,11 @@ def docx_to_pdf(input_docx: str | Path, output_pdf: str | Path) -> bool:
         try:
             # docx2pdf accepts (input, output) where output may be a folder
             convert(str(input_docx), str(output_pdf))
-            logger.info("Converted DOCX -> PDF via docx2pdf: %s", output_pdf)
-            return True
+            # docx2pdf can return without raising when Word fails to export.
+            if output_pdf.is_file():
+                logger.info("Converted DOCX -> PDF via docx2pdf: %s", output_pdf)
+                return True
+            logger.warning("docx2pdf did not produce %s", output_pdf)
         except Exception as exc:
             logger.warning("docx2pdf conversion failed: %s", exc)
     except ModuleNotFoundError:
@@ -203,7 +295,7 @@ def ocr_pdf(
     try:
         _ensure_parent_dir(output_pdf)
         logger.info("Starting OCR: %s", input_pdf)
-        ocrmypdf.ocr(
+        result = ocrmypdf.ocr(
             str(input_pdf),
             str(output_pdf),
             language=language,
@@ -215,6 +307,11 @@ def ocr_pdf(
             force_ocr=force_ocr,
             skip_text=skip_text,
         )
+        # Some failures (e.g. an invalid output PDF) are reported via the
+        # return code rather than an exception.
+        if result != ocrmypdf.ExitCode.ok:
+            logger.error("OCR failed with exit code %s", getattr(result, "name", result))
+            return False
         logger.info("OCR complete: %s", output_pdf)
         return True
     except PriorOcrFoundError:
@@ -251,9 +348,8 @@ def merge_pdfs(pdf_paths: Sequence[str | Path], output_pdf: str | Path) -> bool:
     try:
         writer = PdfWriter()
         for path in resolved:
-            reader = PdfReader(str(path))
-            for page in reader.pages:
-                writer.add_page(page)
+            # append() keeps each input's bookmarks and form fields.
+            writer.append(PdfReader(str(path)))
 
         _ensure_parent_dir(output_pdf)
         with open(output_pdf, "wb") as f:
@@ -281,7 +377,8 @@ def jpeg_to_pdf_merge(
         True if successful, otherwise False.
 
     Notes:
-        Requires the third-party package `Pillow`.
+        Requires the third-party package `img2pdf`. JPEG data is embedded as-is
+        (no lossy re-encode) and EXIF orientation is applied.
     """
     image_folder = _as_path(image_folder)
     output_pdf = _as_path(output_pdf)
@@ -293,51 +390,46 @@ def jpeg_to_pdf_merge(
         return False
 
     try:
-        from PIL import Image
+        import img2pdf
     except ModuleNotFoundError:
-        logger.error("Missing dependency: Pillow (install with `pip install pillow`)")
+        logger.error("Missing dependency: img2pdf (install with `pip install img2pdf`)")
         return False
 
     try:
         if jpg_files is None:
             jpg_files = sorted(
-                [
+                (
                     p.name
                     for p in image_folder.iterdir()
                     if p.is_file() and p.suffix.lower() in {".jpg", ".jpeg"}
-                ]
+                ),
+                key=_natural_sort_key,
             )
 
         if not jpg_files:
             logger.error("No JPG/JPEG files found in: %s", image_folder)
             return False
 
-        images = []
-        for filename in jpg_files:
-            img_path = image_folder / filename
-            if not img_path.exists():
-                logger.error("Image not found: %s", img_path)
-                continue
-            img = Image.open(img_path)
-            if img.mode != "RGB":
-                img = img.convert("RGB")
-            images.append(img)
-            logger.info("Added image: %s", img_path.name)
-
-        if not images:
-            logger.error("No valid images to convert.")
+        # Explicitly listed files must all exist; silently skipping one would
+        # produce a PDF with pages missing.
+        missing = [name for name in jpg_files if not (image_folder / name).is_file()]
+        if missing:
+            logger.error("Images not found in %s: %s", image_folder, ", ".join(missing))
             return False
 
+        image_paths: list[str] = []
+        for filename in jpg_files:
+            img_path = image_folder / filename
+            image_paths.append(str(img_path))
+            logger.info("Added image: %s", img_path.name)
+
+        # img2pdf embeds the compressed JPEG bytes directly instead of holding
+        # decoded bitmaps in memory and re-encoding them.
+        pdf_bytes = img2pdf.convert(image_paths, rotation=img2pdf.Rotation.ifvalid)
         _ensure_parent_dir(output_pdf)
-        images[0].save(str(output_pdf), save_all=True, append_images=images[1:])
-        logger.info("Created PDF: %s (%d pages)", output_pdf, len(images))
-
-        for img in images:
-            try:
-                img.close()
-            except Exception:
-                pass
-
+        with open(output_pdf, "wb") as f:
+            f.write(pdf_bytes)
+        logger.info("Created PDF: %s (%d pages)", output_pdf, len(image_paths))
         return True
     except Exception as exc:
         logger.error("JPG->PDF merge failed: %s", exc)
@@ -396,7 +488,8 @@ def split_pdf(
 
         if mode == "range":
             writer = PdfWriter()
-            indices = _parse_page_selection(page_range, total_pages=total)
+            # Clamp so the default "1-10" also works on shorter PDFs.
+            indices = _parse_page_selection(page_range, total_pages=total, clamp_end=True)
 
             for page_num in indices:
                 writer.add_page(reader.pages[page_num])
@@ -463,8 +556,9 @@ def compress_pdf(input_pdf: str | Path, output_pdf: str | Path) -> bool:
         except OSError:
             return -1
 
+    before = _size(input_pdf)
+
     def _log_sizes(method: str) -> None:
-        before = _size(input_pdf)
         after = _size(output_pdf)
         if before > 0 and after > 0:
             delta = before - after
@@ -527,134 +621,61 @@ def compress_pdf(input_pdf: str | Path, output_pdf: str | Path) -> bool:
             logger.warning("Ghostscript failed (%s): %s", profile, exc)
             return False
 
-    def _compress_with_ghostscript_auto() -> bool:
-        gs = _find_ghostscript()
-        if not gs:
-            return False
+    def _mktemp_pdf() -> Path:
+        fd, name = tempfile.mkstemp(suffix=".pdf")
+        os.close(fd)
+        return Path(name)
 
-        _ensure_parent_dir(output_pdf)
+    def _compress_with_ghostscript_auto(out_path: Path) -> str | None:
+        """Write the better of /ebook and /screen to out_path; return the method label."""
+        if not _find_ghostscript():
+            return None
+        if not _run_ghostscript("ebook", out_path):
+            return None
 
-        def _mktemp_pdf() -> Path:
-            fd, name = tempfile.mkstemp(suffix=".pdf")
+        ebook_size = _size(out_path)
+        # If /ebook barely helps, try /screen and keep the smaller of the two.
+        if before > 0 and ebook_size > 0 and ((before - ebook_size) / before) * 100 < 2.0:
+            tmp_screen = _mktemp_pdf()
             try:
-                os.close(fd)
-            except Exception:
-                pass
-            return Path(name)
+                if _run_ghostscript("screen", tmp_screen) and 0 < _size(tmp_screen) < ebook_size:
+                    os.replace(tmp_screen, out_path)
+                    return "ghostscript/screen"
+            finally:
+                tmp_screen.unlink(missing_ok=True)
+        return "ghostscript/ebook"
 
-        tmp_ebook = _mktemp_pdf()
-        tmp_screen = _mktemp_pdf()
-        try:
-            if not _run_ghostscript("ebook", tmp_ebook):
-                return False
-
-            before = _size(input_pdf)
-            ebook_size = _size(tmp_ebook)
-
-            # If /ebook barely helps, try /screen and keep the smaller of the two.
-            try_screen = False
-            if before > 0 and ebook_size > 0:
-                saved_pct = ((before - ebook_size) / before) * 100
-                if saved_pct < 2.0:
-                    try_screen = True
-
-            best_tmp = tmp_ebook
-            best_profile = "ebook"
-
-            if try_screen and _run_ghostscript("screen", tmp_screen):
-                screen_size = _size(tmp_screen)
-                if screen_size > 0 and (ebook_size <= 0 or screen_size < ebook_size):
-                    best_tmp = tmp_screen
-                    best_profile = "screen"
-
-            # Move best result into place.
-            try:
-                if output_pdf.exists():
-                    output_pdf.unlink()
-            except Exception:
-                pass
-            shutil.move(str(best_tmp), str(output_pdf))
-            _log_sizes(f"ghostscript/{best_profile}")
-            return True
-        finally:
-            for p in (tmp_ebook, tmp_screen):
-                try:
-                    if p.exists():
-                        p.unlink()
-                except Exception:
-                    pass
-
-    def _pymupdf_save_with_kwargs(doc: object, path: Path, kwargs: dict) -> None:
-        # PyMuPDF kwargs vary by version; iteratively drop unsupported kwargs.
-        save_fn = getattr(doc, "save")
-        current = dict(kwargs)
-        while True:
-            try:
-                save_fn(str(path), **current)
-                return
-            except TypeError as exc:
-                msg = str(exc)
-                m = re.search(r"unexpected keyword argument '([^']+)'", msg)
-                if not m:
-                    raise
-                bad = m.group(1)
-                if bad in current:
-                    current.pop(bad)
-                    continue
-                raise
-
-    def _compress_with_pymupdf_lossless() -> bool:
+    def _compress_with_pymupdf_lossless(out_path: Path) -> str | None:
         try:
             import pymupdf
         except ModuleNotFoundError:
-            return False
+            return None
 
         try:
-            _ensure_parent_dir(output_pdf)
-            doc = pymupdf.open(str(input_pdf))
-            # garbage/clean/deflate are generally safe and can remove unused objects.
-            kwargs = {
-                "garbage": 4,
-                "clean": True,
-                "deflate": True,
-                # If supported by the installed version, these can reduce size further.
-                "deflate_images": True,
-                "deflate_fonts": True,
-                "linear": True,
-            }
-            _pymupdf_save_with_kwargs(doc, output_pdf, kwargs)
-            _log_sizes("pymupdf(lossless)")
-            return True
+            with pymupdf.open(str(input_pdf)) as doc:
+                # garbage/clean/deflate are generally safe and can remove unused objects.
+                # No "linear": MuPDF >= 1.26 rejects linearisation with a non-TypeError.
+                kwargs = {
+                    "garbage": 4,
+                    "clean": True,
+                    "deflate": True,
+                    # If supported by the installed version, these can reduce size further.
+                    "deflate_images": True,
+                    "deflate_fonts": True,
+                }
+                _save_dropping_unsupported_kwargs(doc, out_path, kwargs)
+            return "pymupdf(lossless)"
         except Exception as exc:
             logger.warning("PyMuPDF compression failed: %s", exc)
-            return False
+            return None
 
-    def _pikepdf_save_with_kwargs(pdf: object, path: Path, kwargs: dict) -> None:
-        save_fn = getattr(pdf, "save")
-        current = dict(kwargs)
-        while True:
-            try:
-                save_fn(str(path), **current)
-                return
-            except TypeError as exc:
-                msg = str(exc)
-                m = re.search(r"unexpected keyword argument '([^']+)'", msg)
-                if not m:
-                    raise
-                bad = m.group(1)
-                if bad in current:
-                    current.pop(bad)
-                    continue
-                raise
-
-    def _compress_with_pikepdf_lossless() -> bool:
+    def _compress_with_pikepdf_lossless(out_path: Path) -> str | None:
         try:
             import pikepdf as pike
         except ModuleNotFoundError:
-            return False
+            return None
 
         try:
-            _ensure_parent_dir(output_pdf)
             with pike.open(str(input_pdf)) as pdf:
                 kwargs = {
                     "compress_streams": True,
@@ -662,29 +683,56 @@ def compress_pdf(input_pdf: str | Path, output_pdf: str | Path) -> bool:
                     # Some versions support linearize; keep best-effort.
                     "linearize": True,
                 }
-                _pikepdf_save_with_kwargs(pdf, output_pdf, kwargs)
-            _log_sizes("pikepdf(lossless)")
-            return True
+                _save_dropping_unsupported_kwargs(pdf, out_path, kwargs)
+            return "pikepdf(lossless)"
         except Exception as exc:
             logger.warning("pikepdf compression failed: %s", exc)
-            return False
+            return None
 
     # 1) Prefer Ghostscript for substantial reductions (especially scanned/image PDFs).
     #    'ebook' is a reasonable default tradeoff (smaller than 'printer', better than 'screen').
-    if _compress_with_ghostscript_auto():
-        return True
-
     # 2) Lossless fallbacks.
-    if _compress_with_pymupdf_lossless():
-        return True
-    if _compress_with_pikepdf_lossless():
-        return True
+    # Each method writes to a temp file; a result is only kept if it is smaller
+    # than the input, so "compression" never produces a bigger file.
+    tmp = None
+    try:
+        tmp = _mktemp_pdf()
+        ran_any = False
+        for strategy in (
+            _compress_with_ghostscript_auto,
+            _compress_with_pymupdf_lossless,
+            _compress_with_pikepdf_lossless,
+        ):
+            method = strategy(tmp)
+            if method is None:
+                continue
+            ran_any = True
+            after = _size(tmp)
+            if after > 0 and (before <= 0 or after < before):
+                _ensure_parent_dir(output_pdf)
+                shutil.copyfile(tmp, output_pdf)
+                _log_sizes(method)
+                return True
+            logger.info("%s did not reduce size (%d -> %d bytes)", method, before, after)
 
-    logger.error(
-        "No available compressor. Install Ghostscript or `pymupdf` or `pikepdf`. "
-        "(Ghostscript gives the biggest size reductions.)"
-    )
-    return False
+        if not ran_any:
+            logger.error(
+                "No available compressor. Install Ghostscript or `pymupdf` or `pikepdf`. "
+                "(Ghostscript gives the biggest size reductions.)"
+            )
+            return False
+
+        logger.info("PDF is already optimized; writing an unchanged copy -> %s", output_pdf)
+        if not (output_pdf.exists() and os.path.samefile(input_pdf, output_pdf)):
+            _ensure_parent_dir(output_pdf)
+            shutil.copyfile(input_pdf, output_pdf)
+        return True
+    except Exception as exc:
+        logger.error("Compression failed: %s", exc)
+        return False
+    finally:
+        if tmp is not None:
+            tmp.unlink(missing_ok=True)
 
 
 def extract_text_from_pdf(input_pdf: str | Path, output_txt: str | Path | None = None) -> Path | None:
@@ -738,8 +786,12 @@ def pdf_page_count(input_pdf: str | Path) -> int | None:
         return None
     try:
         from pypdf import PdfReader
+        from pypdf.errors import FileNotDecryptedError
         reader = PdfReader(str(input_pdf))
         return len(reader.pages)
+    except FileNotDecryptedError:
+        logger.warning("PDF is password-protected; page count needs the password: %s", input_pdf)
+        return None
     except Exception as exc:
         logger.error("Failed to read PDF: %s", exc)
         return None
@@ -785,12 +837,12 @@ def encrypt_pdf(input_pdf: str | Path, output_pdf: str | Path, password: str | b
 
     try:
         reader = PdfReader(str(input_pdf))
-        writer = PdfWriter()
-        for page in reader.pages:
-            writer.add_page(page)
+        # Clone (not add_page) so bookmarks, form fields and metadata are kept.
+        writer = PdfWriter(clone_from=reader)
 
         user_password = _bytes_like_to_str(password)
-        writer.encrypt(user_password)
+        # pypdf defaults to RC4-128, which is broken; AES-256 uses `cryptography`.
+        writer.encrypt(user_password, algorithm="AES-256")
 
         _ensure_parent_dir(output_pdf)
         with open(output_pdf, "wb") as f:
@@ -832,14 +884,14 @@ def decrypt_pdf(
     try:
         reader = PdfReader(str(input_pdf))
         if reader.is_encrypted:
-            ok = reader.decrypt(_bytes_like_to_str(password))
+            # pypdf accepts bytes passwords as-is; decoding could alter them.
+            ok = reader.decrypt(password if isinstance(password, str) else bytes(password))
             if not ok:
                 logger.error("Incorrect password or unable to decrypt.")
                 return None
 
-        writer = PdfWriter()
-        for page in reader.pages:
-            writer.add_page(page)
+        # Clone (not add_page) so bookmarks, form fields and metadata are kept.
+        writer = PdfWriter(clone_from=reader)
 
         _ensure_parent_dir(output_pdf)
         with open(output_pdf, "wb") as f:
@@ -878,12 +930,13 @@ def rotate_pdf(input_pdf: str | Path, output_pdf: str | Path, angle: int, pages:
 
     try:
         reader = PdfReader(str(input_pdf))
-        writer = PdfWriter()
+        # Clone (not add_page) so bookmarks, form fields and metadata are kept.
+        writer = PdfWriter(clone_from=reader)
         selected: set[int] | None = None
         if pages:
             selected = set(_parse_page_selection(pages, total_pages=len(reader.pages)))
 
-        for idx, page in enumerate(reader.pages):
+        for idx, page in enumerate(writer.pages):
             if selected is None or idx in selected:
                 if hasattr(page, "rotate"):
                     page.rotate(angle)
@@ -891,7 +944,6 @@ def rotate_pdf(input_pdf: str | Path, output_pdf: str | Path, angle: int, pages:
                     rotate_clockwise = getattr(page, "rotate_clockwise", None)
                     if callable(rotate_clockwise):
                         rotate_clockwise(angle)
-            writer.add_page(page)
 
         _ensure_parent_dir(output_pdf)
         with open(output_pdf, "wb") as f:
@@ -929,18 +981,21 @@ def delete_pages_pdf(input_pdf: str | Path, output_pdf: str | Path, pages: str) 
     try:
         reader = PdfReader(str(input_pdf))
         to_delete = set(_parse_page_selection(pages, total_pages=len(reader.pages)))
+        kept = [idx for idx in range(len(reader.pages)) if idx not in to_delete]
+        if not kept:
+            logger.error("Refusing to delete every page (%s): the output would be an empty PDF.", pages)
+            return False
 
         writer = PdfWriter()
-        kept = 0
-        for idx, page in enumerate(reader.pages):
-            if idx not in to_delete:
-                writer.add_page(page)
-                kept += 1
+        # append() keeps bookmarks and form fields that point at kept pages.
+        writer.append(reader, pages=kept)
+        if reader.metadata:
+            writer.add_metadata(reader.metadata)
 
         _ensure_parent_dir(output_pdf)
         with open(output_pdf, "wb") as f:
             writer.write(f)
-        logger.info("Deleted pages (%s). Kept %d pages -> %s", pages, kept, output_pdf)
+        logger.info("Deleted pages (%s). Kept %d pages -> %s", pages, len(kept), output_pdf)
         return True
     except Exception as exc:
         logger.error("Delete pages failed: %s", exc)
@@ -979,8 +1034,10 @@ def reorder_pages_pdf(input_pdf: str | Path, output_pdf: str | Path, order: Sequ
             return False
 
         writer = PdfWriter()
-        for idx in indices:
-            writer.add_page(reader.pages[idx])
+        # append() keeps bookmarks and form fields that point at included pages.
+        writer.append(reader, pages=indices)
+        if reader.metadata:
+            writer.add_metadata(reader.metadata)
 
         _ensure_parent_dir(output_pdf)
         with open(output_pdf, "wb") as f:
@@ -1032,20 +1089,24 @@ def add_header_footer_pdf(
     try:
         doc = pymupdf.open(str(input_pdf))
         pages = int(doc.page_count)
+        # Placeholders only add digits, so the templates decide the font.
+        font_kwargs, _ = _pick_font(pymupdf, (header or "") + (footer or ""))
         for page_no in range(1, pages + 1):
             page = doc.load_page(page_no - 1)
             rect = page.rect
             if header:
                 page.insert_text(
                     (margin, margin),
-                    header.format(page=page_no, pages=pages),
+                    _fill_page_placeholders(header, page=page_no, pages=pages),
                     fontsize=fontsize,
+                    **font_kwargs,
                 )
             if footer:
                 page.insert_text(
                     (margin, rect.height - margin),
-                    footer.format(page=page_no, pages=pages),
+                    _fill_page_placeholders(footer, page=page_no, pages=pages),
                     fontsize=fontsize,
+                    **font_kwargs,
                 )
 
         _ensure_parent_dir(output_pdf)
@@ -1063,7 +1124,7 @@ def watermark_pdf(
     text: str,
     *,
     fontsize: float = 48,
-    rotate: int = 45,
+    rotate: float = 45,
     opacity: float = 0.15,
 ) -> bool:
     """Apply a text watermark across each page using PyMuPDF.
@@ -1073,7 +1134,7 @@ def watermark_pdf(
         output_pdf: Output PDF.
         text: Watermark text.
         fontsize: Font size.
-        rotate: Rotation angle.
+        rotate: Rotation angle in degrees (any value, counter-clockwise).
         opacity: Opacity (0..1).
 
     Returns:
@@ -1083,6 +1144,9 @@ def watermark_pdf(
     output_pdf = _as_path(output_pdf)
     if not input_pdf.exists():
         logger.error("Input PDF not found: %s", input_pdf)
+        return False
+    if not 0 <= opacity <= 1:
+        logger.error("opacity must be between 0 and 1")
         return False
 
     try:
@@ -1094,16 +1158,24 @@ def watermark_pdf(
     try:
         doc = pymupdf.open(str(input_pdf))
         pages = int(doc.page_count)
+        font_kwargs, font = _pick_font(pymupdf, text)
+        text_width = font.text_length(text, fontsize=fontsize)
         for page_index in range(pages):
             page = doc.load_page(page_index)
             rect = page.rect
-            pos = (rect.width / 2, rect.height / 2)
+            center = pymupdf.Point(rect.width / 2, rect.height / 2)
+            # Start the baseline so the text is centred, then rotate around the
+            # centre via `morph`: insert_text's own `rotate` only accepts
+            # multiples of 90 and raises "bad rotate value" otherwise.
+            start = pymupdf.Point(center.x - text_width / 2, center.y + fontsize / 3)
             page.insert_text(
-                pos,
+                start,
                 text,
                 fontsize=fontsize,
-                rotate=int(rotate),
                 color=(0.6, 0.6, 0.6),
+                fill_opacity=opacity,
+                morph=(center, pymupdf.Matrix(rotate)),
+                **font_kwargs,
             )
 
         _ensure_parent_dir(output_pdf)
@@ -1347,9 +1419,9 @@ def set_pdf_metadata(input_pdf: str | Path, output_pdf: str | Path, metadata: di
 
     try:
         reader = PdfReader(str(input_pdf))
-        writer = PdfWriter()
-        for page in reader.pages:
-            writer.add_page(page)
+        # Clone so existing metadata (and bookmarks/forms) are kept;
+        # add_metadata then only overrides the given keys.
+        writer = PdfWriter(clone_from=reader)
         writer.add_metadata(metadata)
 
         _ensure_parent_dir(output_pdf)
@@ -1423,11 +1495,31 @@ def batch_process_folder(
 
 
 def _parse_order(value: str) -> list[int]:
-    """Parse a comma-separated list of integers."""
-    return [int(x.strip()) for x in value.split(",") if x.strip()]
+    """Parse a comma-separated list of integers.
+
+    Raises:
+        ValueError: If an item is not an integer or the list is empty.
+    """
+    order = [int(x.strip()) for x in value.split(",") if x.strip()]
+    if not order:
+        raise ValueError("empty page order")
+    return order
 
 
-def _parse_page_selection(selection: str, *, total_pages: int) -> list[int]:
+def _show_pdf_info(input_pdf: str | Path) -> int:
+    """Log page count and encryption status; return a process exit code."""
+    enc = pdf_is_encrypted(input_pdf)
+    if enc is None:
+        return 1
+    pages = pdf_page_count(input_pdf)
+    if pages is None and not enc:
+        return 1
+    logger.info("Pages: %s", pages if pages is not None else "unknown (password required)")
+    logger.info("Encrypted: %s", enc)
+    return 0
+
+
+def _parse_page_selection(selection: str, *, total_pages: int, clamp_end: bool = False) -> list[int]:
     """Parse a page selection string like "1-3,6,10" (1-based, inclusive).
 
     Returns a list of 0-based page indices in the order specified, with duplicates removed.
@@ -1435,6 +1527,7 @@ def _parse_page_selection(selection: str, *, total_pages: int) -> list[int]:
     Args:
         selection: Comma-separated pages and ranges (e.g. "9,10,17-115").
         total_pages: Total number of pages in the PDF.
+        clamp_end: Cut a range's end down to the last page instead of raising.
 
     Raises:
         ValueError: If the selection is invalid or out of range.
@@ -1462,6 +1555,9 @@ def _parse_page_selection(selection: str, *, total_pages: int) -> list[int]:
                 raise ValueError(f"invalid page number in '{part}'")
             if start > end:
                 raise ValueError(f"range start > end in '{part}'")
+            if clamp_end and start <= total_pages < end:
+                logger.warning("Range '%s' ends past the last page; using %d-%d", part, start, total_pages)
+                end = total_pages
             if start > total_pages or end > total_pages:
                 raise ValueError(f"page range '{part}' out of bounds (1..{total_pages})")
             for page_no in range(start, end + 1):
@@ -1666,30 +1762,31 @@ def interactive_menu() -> int:
         Process exit code (0 for success, 1 for failure).
     """
     while True:
-        logger.info("\nPDFSuite Menu")
-        logger.info("1) PDF -> DOCX")
-        logger.info("2) OCR PDF")
-        logger.info("3) Merge PDFs")
-        logger.info("4) Split PDF")
-        logger.info("5) Merge JPG/JPEG -> PDF")
-        logger.info("6) Compress PDF")
-        logger.info("7) Extract text")
-        logger.info("8) Encrypt PDF")
-        logger.info("9) Decrypt PDF")
-        logger.info("10) Rotate pages")
-        logger.info("11) Delete pages")
-        logger.info("12) Reorder pages")
-        logger.info("13) Add header/footer")
-        logger.info("14) Watermark")
-        logger.info("15) Extract images")
-        logger.info("16) PDF -> images")
-        logger.info("17) Show metadata")
-        logger.info("18) Set metadata")
-        logger.info("19) PDF info (pages/encrypted)")
-        logger.info("20) Batch folder")
-        logger.info("21) Convert selected pages to non-OCR")
-        logger.info("22) DOCX -> PDF")
-        logger.info("0) Exit")
+        # Menu text goes to stdout so it stays visible at any --log-level.
+        print("\nPDFSuite Menu")
+        print("1) PDF -> DOCX")
+        print("2) OCR PDF")
+        print("3) Merge PDFs")
+        print("4) Split PDF")
+        print("5) Merge JPG/JPEG -> PDF")
+        print("6) Compress PDF")
+        print("7) Extract text")
+        print("8) Encrypt PDF")
+        print("9) Decrypt PDF")
+        print("10) Rotate pages")
+        print("11) Delete pages")
+        print("12) Reorder pages")
+        print("13) Add header/footer")
+        print("14) Watermark")
+        print("15) Extract images")
+        print("16) PDF -> images")
+        print("17) Show metadata")
+        print("18) Set metadata")
+        print("19) PDF info (pages/encrypted)")
+        print("20) Batch folder")
+        print("21) Convert selected pages to non-OCR")
+        print("22) DOCX -> PDF")
+        print("0) Exit")
 
         choice = _prompt("Choose", default="0")
         if choice in {"0", "q", "quit", "exit"}:
@@ -1793,7 +1890,12 @@ def interactive_menu() -> int:
                 inp = _prompt("Input PDF")
                 out = _prompt("Output PDF")
                 order_raw = _prompt("New order (comma-separated, e.g. 2,1,3)")
-                return 0 if reorder_pages_pdf(inp, out, _parse_order(order_raw)) else 1
+                try:
+                    order = _parse_order(order_raw)
+                except ValueError as exc:
+                    logger.error("Invalid order %r: %s", order_raw, exc)
+                    return 1
+                return 0 if reorder_pages_pdf(inp, out, order) else 1
 
             if choice == "13":
                 inp = _prompt("Input PDF")
@@ -1841,24 +1943,15 @@ def interactive_menu() -> int:
                 out = _prompt("Output PDF")
                 raw = _prompt('Metadata JSON (e.g. {"/Title":"X"})')
                 try:
-                    md = json.loads(raw)
-                    if not isinstance(md, dict):
-                        raise ValueError("metadata must be a JSON object")
-                    md = {str(k): str(v) for k, v in md.items()}
-                except Exception as exc:
+                    md = _parse_metadata_json(raw)
+                except ValueError as exc:
                     logger.error("Invalid JSON: %s", exc)
                     return 1
                 return 0 if set_pdf_metadata(inp, out, md) else 1
 
             if choice == "19":
                 inp = _prompt("Input PDF")
-                pages = pdf_page_count(inp)
-                enc = pdf_is_encrypted(inp)
-                if pages is None or enc is None:
-                    return 1
-                logger.info("Pages: %s", pages)
-                logger.info("Encrypted: %s", enc)
-                return 0
+                return _show_pdf_info(inp)
 
             if choice == "20":
                 folder = _prompt("Folder")
@@ -1885,7 +1978,7 @@ def interactive_menu() -> int:
 
             logger.error("Unknown choice: %s", choice)
         except KeyboardInterrupt:
-            logger.info("\nCancelled.")
+            print("\nCancelled.")
             return 1
 
 
@@ -1962,7 +2055,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if delete_pages_pdf(args.input_pdf, args.output_pdf, args.pages) else 1
 
     if cmd == "reorder":
-        order = _parse_order(args.order)
+        try:
+            order = _parse_order(args.order)
+        except ValueError as exc:
+            logger.error("Invalid --order value %r: %s", args.order, exc)
+            return 1
         return 0 if reorder_pages_pdf(args.input_pdf, args.output_pdf, order) else 1
 
     if cmd == "header-footer":
@@ -2002,23 +2099,14 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if cmd == "meta-set":
         try:
-            md = json.loads(args.json_metadata)
-            if not isinstance(md, dict):
-                raise ValueError("metadata must be a JSON object")
-            md = {str(k): str(v) for k, v in md.items()}
-        except Exception as exc:
+            md = _parse_metadata_json(args.json_metadata)
+        except ValueError as exc:
             logger.error("Invalid --json value: %s", exc)
             return 1
         return 0 if set_pdf_metadata(args.input_pdf, args.output_pdf, md) else 1
 
     if cmd == "info":
-        pages = pdf_page_count(args.input_pdf)
-        enc = pdf_is_encrypted(args.input_pdf)
-        if pages is None or enc is None:
-            return 1
-        logger.info("Pages: %s", pages)
-        logger.info("Encrypted: %s", enc)
-        return 0
+        return _show_pdf_info(args.input_pdf)
 
     if cmd == "batch":
         ok = batch_process_folder(

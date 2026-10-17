@@ -23,7 +23,6 @@ pycparser==2.23
 Pygments==2.19.2
 PyMuPDF==1.26.7
 pypdf==6.6.0
-PyPDF2==3.0.1
 python-docx==1.2.0
 rich==14.2.0
 termcolor==3.3.0
