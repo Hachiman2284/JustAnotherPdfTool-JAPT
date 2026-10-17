@@ -202,6 +202,13 @@ Operations you can choose:
 - `ocr` creates `name_ocr.pdf` for each file.
 - `compress` creates `name_compressed.pdf` for each file.
 - `extract-text` creates `name.txt` for each file.
+- `watermark` creates `name_watermarked.pdf` for each file.
+- `rotate` creates `name_rotated.pdf` for each file.
+- `header-footer` creates `name_header_footer.pdf` for each file.
+
+After you choose the operation, the tool asks the same questions as the single-file option (for example the watermark text, or the rotation angle) and uses your answers for every file.
+
+> **Tip:** results are saved next to the originals unless you choose an output folder. Running the same batch twice in one folder also processes the first run's results (for example `name_rotated_rotated.pdf`), so pick an output folder when you plan to repeat a batch.
 
 *Glob* chooses which files to include. `*.pdf` means all PDFs; `invoice*.pdf` means only PDFs whose names start with "invoice". Leave the output folder blank to save results next to the originals.
 
@@ -234,6 +241,8 @@ venv\Scripts\python.exe src\pdfsuite.py compress --in big.pdf --out small.pdf
 venv\Scripts\python.exe src\pdfsuite.py watermark --in report.pdf --out draft.pdf --text DRAFT
 venv\Scripts\python.exe src\pdfsuite.py split --in book.pdf --mode chunk --chunk-size 20 --out-dir chapters
 venv\Scripts\python.exe src\pdfsuite.py batch --folder C:\Scans --op ocr --lang eng
+venv\Scripts\python.exe src\pdfsuite.py batch --folder C:\Reports --op watermark --text DRAFT --out-dir C:\Drafts
+venv\Scripts\python.exe src\pdfsuite.py batch --folder C:\Reports --op header-footer --footer "Page {page} of {pages}"
 ```
 
 Put paths that contain spaces in quotes: `--in "C:\My Files\report.pdf"`.
