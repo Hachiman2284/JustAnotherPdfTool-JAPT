@@ -1755,11 +1755,76 @@ def _prompt_float(value_name: str, *, default: float | None = None) -> float:
             logger.error("Invalid number: %s", raw)
 
 
+def _strip_quotes(value: str) -> str:
+    """Remove one pair of matching quotes around a value.
+
+    Windows "Copy as path" wraps paths in double quotes.
+    """
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        return value[1:-1].strip()
+    return value
+
+
+def _prompt_path(value_name: str, *, default: str | None = None) -> str:
+    """Prompt for a file or folder path, ignoring surrounding quotes."""
+    return _strip_quotes(_prompt(value_name, default=default))
+
+
+def _prompt_path_list(value_name: str, *, default: str | None = None) -> list[str]:
+    """Prompt for a comma-separated list of paths, ignoring quotes around each one."""
+    raw = _prompt(value_name, default=default)
+    return [_strip_quotes(x.strip()) for x in raw.split(",") if x.strip()]
+
+
+def _prompt_output(
+    value_name: str,
+    *,
+    inputs: Sequence[str] = (),
+    default: str | None = None,
+    base_dir: str | None = None,
+) -> str:
+    """Prompt for an output file path.
+
+    Re-asks when the path is blank, is one of the input files, or names an
+    existing file the user does not want to overwrite.
+
+    Args:
+        value_name: Label shown to the user.
+        inputs: Input paths the output must not replace.
+        default: Optional default returned when user enters blank input.
+        base_dir: Folder a relative output path is resolved against, when the
+            operation writes relative outputs somewhere other than the
+            current directory.
+    """
+    while True:
+        out = _prompt_path(value_name, default=default)
+        if not out:
+            if default is not None:
+                return out
+            logger.error("Please enter a file name.")
+            continue
+        out_path = Path(out)
+        if base_dir and not out_path.is_absolute():
+            out_path = Path(base_dir) / out_path
+        if out_path.exists():
+            if any(Path(i).exists() and os.path.samefile(out_path, i) for i in inputs if i):
+                logger.error("The output must be a different file from the input. Choose another name.")
+                continue
+            if out_path.is_dir():
+                logger.error("%s is a folder. Enter a file name.", out_path)
+                continue
+            if not _prompt(f"{out_path} already exists. Overwrite? (y/n)", default="n").lower().startswith("y"):
+                continue
+        return out
+
+
 def interactive_menu() -> int:
-    """Run an interactive menu runner.
+    """Run the interactive menu until the user chooses Exit.
+
+    After each job the menu is shown again.
 
     Returns:
-        Process exit code (0 for success, 1 for failure).
+        Process exit code (0 when the user exits from the menu).
     """
     while True:
         # Menu text goes to stdout so it stays visible at any --log-level.
@@ -1788,199 +1853,222 @@ def interactive_menu() -> int:
         print("22) DOCX -> PDF")
         print("0) Exit")
 
-        choice = _prompt("Choose", default="0")
+        try:
+            choice = _prompt("Choose", default="0")
+        except (KeyboardInterrupt, EOFError):
+            print()
+            return 0
         if choice in {"0", "q", "quit", "exit"}:
             return 0
 
         try:
-            if choice == "1":
-                inp = _prompt("Input PDF")
-                out = _prompt("Output DOCX")
-                return 0 if pdf_to_docx(inp, out) else 1
-
-            if choice == "22":
-                inp = _prompt("Input DOCX")
-                out = _prompt("Output PDF")
-                return 0 if docx_to_pdf(inp, out) else 1
-
-            if choice == "2":
-                inp = _prompt("Input PDF")
-                out = _prompt("Output PDF")
-                lang = _prompt("Language", default="eng")
-                deskew = _prompt("Deskew? (y/n)", default="n").lower().startswith("y")
-                rotate_pages = _prompt("Rotate pages? (y/n)", default="n").lower().startswith("y")
-                remove_bg = _prompt("Remove background? (y/n)", default="n").lower().startswith("y")
-                optimize = _prompt_int("Optimize (0-3)", default=1)
-                force_ocr = _prompt("Force OCR? (y/n)", default="n").lower().startswith("y")
-                skip_text = _prompt("Skip existing text? (y/n)", default="n").lower().startswith("y")
-                ok = ocr_pdf(
-                    inp,
-                    out,
-                    language=lang,
-                    deskew=deskew,
-                    rotate_pages=rotate_pages,
-                    remove_background=remove_bg,
-                    optimize=optimize,
-                    force_ocr=force_ocr,
-                    skip_text=skip_text,
-                )
-                return 0 if ok else 1
-
-            if choice == "3":
-                out = _prompt("Output merged PDF")
-                raw = _prompt("Input PDFs (comma-separated)")
-                inputs = [p.strip() for p in raw.split(",") if p.strip()]
-                return 0 if merge_pdfs(inputs, out) else 1
-
-            if choice == "4":
-                inp = _prompt("Input PDF")
-                mode = _prompt("Mode (single/range/chunk)", default="single").strip().lower()
-                out_dir = _prompt("Output directory", default=".")
-                prefix = _prompt("Filename prefix (optional)", default="")
-                pr = _prompt("Page range (for mode=range)", default="1-10")
-                chunk = _prompt_int("Chunk size (for mode=chunk)", default=10)
-                ok = split_pdf(inp, mode=mode, page_range=pr, chunk_size=chunk, output_dir=out_dir, prefix=prefix)
-                return 0 if ok else 1
-
-            if choice == "5":
-                folder = _prompt("Image folder")
-                out = _prompt("Output PDF", default="merged_output.pdf")
-                raw = _prompt("Filenames (comma-separated, optional)", default="")
-                files = [x.strip() for x in raw.split(",") if x.strip()] if raw else None
-                return 0 if jpeg_to_pdf_merge(folder, files, out) else 1
-
-            if choice == "6":
-                inp = _prompt("Input PDF")
-                out = _prompt("Output PDF")
-                return 0 if compress_pdf(inp, out) else 1
-
-            if choice == "7":
-                inp = _prompt("Input PDF")
-                out = _prompt("Output TXT (optional)", default="")
-                out_path = out if out else None
-                return 0 if extract_text_from_pdf(inp, out_path) is not None else 1
-
-            if choice == "8":
-                inp = _prompt("Input PDF")
-                out = _prompt("Output encrypted PDF")
-                pw = _prompt("Password")
-                return 0 if encrypt_pdf(inp, out, pw) is not None else 1
-
-            if choice == "9":
-                inp = _prompt("Input PDF")
-                out = _prompt("Output decrypted PDF")
-                pw = _prompt("Password")
-                return 0 if decrypt_pdf(inp, out, pw) is not None else 1
-
-            if choice == "10":
-                inp = _prompt("Input PDF")
-                out = _prompt("Output PDF")
-                angle = _prompt_int("Angle (90/180/270)", default=90)
-                pages = _prompt("Pages (optional, e.g. 1-3,6)", default="")
-                pages_val = pages if pages else None
-                return 0 if rotate_pdf(inp, out, angle, pages=pages_val) else 1
-
-            if choice == "11":
-                inp = _prompt("Input PDF")
-                out = _prompt("Output PDF")
-                pages = _prompt("Pages to delete (e.g. 1-3,6)")
-                return 0 if delete_pages_pdf(inp, out, pages) else 1
-
-            if choice == "12":
-                inp = _prompt("Input PDF")
-                out = _prompt("Output PDF")
-                order_raw = _prompt("New order (comma-separated, e.g. 2,1,3)")
-                try:
-                    order = _parse_order(order_raw)
-                except ValueError as exc:
-                    logger.error("Invalid order %r: %s", order_raw, exc)
-                    return 1
-                return 0 if reorder_pages_pdf(inp, out, order) else 1
-
-            if choice == "13":
-                inp = _prompt("Input PDF")
-                out = _prompt("Output PDF")
-                header = _prompt('Header (optional, supports {page}/{pages})', default="")
-                footer = _prompt('Footer (optional, supports {page}/{pages})', default="")
-                margin = _prompt_float("Margin (points)", default=36)
-                fontsize = _prompt_float("Font size", default=10)
-                return 0 if add_header_footer_pdf(
-                    inp,
-                    out,
-                    header=header or None,
-                    footer=footer or None,
-                    margin=margin,
-                    fontsize=fontsize,
-                ) else 1
-
-            if choice == "14":
-                inp = _prompt("Input PDF")
-                out = _prompt("Output PDF")
-                text = _prompt("Watermark text")
-                fontsize = _prompt_float("Font size", default=48)
-                rotate = _prompt_int("Rotate", default=45)
-                opacity = _prompt_float("Opacity (0..1)", default=0.15)
-                return 0 if watermark_pdf(inp, out, text, fontsize=fontsize, rotate=rotate, opacity=opacity) else 1
-
-            if choice == "15":
-                inp = _prompt("Input PDF")
-                out_dir = _prompt("Output directory")
-                return 0 if extract_images_from_pdf(inp, out_dir) is not None else 1
-
-            if choice == "16":
-                inp = _prompt("Input PDF")
-                out_dir = _prompt("Output directory")
-                dpi = _prompt_int("DPI", default=150)
-                fmt = _prompt("Format (png/jpg)", default="png")
-                return 0 if pdf_to_images(inp, out_dir, dpi=dpi, fmt=fmt) is not None else 1
-
-            if choice == "17":
-                inp = _prompt("Input PDF")
-                return 0 if show_pdf_metadata(inp) is not None else 1
-
-            if choice == "18":
-                inp = _prompt("Input PDF")
-                out = _prompt("Output PDF")
-                raw = _prompt('Metadata JSON (e.g. {"/Title":"X"})')
-                try:
-                    md = _parse_metadata_json(raw)
-                except ValueError as exc:
-                    logger.error("Invalid JSON: %s", exc)
-                    return 1
-                return 0 if set_pdf_metadata(inp, out, md) else 1
-
-            if choice == "19":
-                inp = _prompt("Input PDF")
-                return _show_pdf_info(inp)
-
-            if choice == "20":
-                folder = _prompt("Folder")
-                op = _prompt("Operation (ocr/compress/extract-text)")
-                glob_pattern = _prompt("Glob", default="*.pdf")
-                out_dir = _prompt("Output directory (optional)", default="")
-                out_dir_val = out_dir if out_dir else None
-                lang = _prompt("Language (ocr)", default="eng")
-                ok = batch_process_folder(
-                    folder,
-                    glob_pattern=glob_pattern,
-                    operation=op,
-                    output_dir=out_dir_val,
-                    language=lang,
-                )
-                return 0 if ok > 0 else 1
-
-            if choice == "21":
-                inp = _prompt("Input PDF")
-                out = _prompt("Output PDF")
-                pages = _prompt('Pages to convert (e.g. 1,2,9-12,16)')
-                dpi = _prompt_int("DPI", default=150)
-                return 0 if deocr_selected_pages(inp, out, pages, dpi=dpi) else 1
-
-            logger.error("Unknown choice: %s", choice)
+            rc = _run_menu_choice(choice)
         except KeyboardInterrupt:
             print("\nCancelled.")
+            continue
+        except EOFError:
+            print()
             return 1
+        if rc is None:
+            continue
 
+        print("\nDone." if rc == 0 else "\nFailed. See the messages above.")
+        try:
+            input("Press Enter to return to the menu...")
+        except (KeyboardInterrupt, EOFError):
+            print()
+            return 0
+
+
+def _run_menu_choice(choice: str) -> int | None:
+    """Ask for the inputs of one menu job and run it.
+
+    Returns:
+        0 on success, 1 on failure, or None for an unknown choice.
+    """
+    if choice == "1":
+        inp = _prompt_path("Input PDF")
+        out = _prompt_output("Output DOCX", inputs=[inp])
+        return 0 if pdf_to_docx(inp, out) else 1
+
+    if choice == "22":
+        inp = _prompt_path("Input DOCX")
+        out = _prompt_output("Output PDF", inputs=[inp])
+        return 0 if docx_to_pdf(inp, out) else 1
+
+    if choice == "2":
+        inp = _prompt_path("Input PDF")
+        out = _prompt_output("Output PDF", inputs=[inp])
+        lang = _prompt("Language", default="eng")
+        deskew = _prompt("Deskew? (y/n)", default="n").lower().startswith("y")
+        rotate_pages = _prompt("Rotate pages? (y/n)", default="n").lower().startswith("y")
+        remove_bg = _prompt("Remove background? (y/n)", default="n").lower().startswith("y")
+        optimize = _prompt_int("Optimize (0-3)", default=1)
+        force_ocr = _prompt("Force OCR? (y/n)", default="n").lower().startswith("y")
+        skip_text = _prompt("Skip existing text? (y/n)", default="n").lower().startswith("y")
+        ok = ocr_pdf(
+            inp,
+            out,
+            language=lang,
+            deskew=deskew,
+            rotate_pages=rotate_pages,
+            remove_background=remove_bg,
+            optimize=optimize,
+            force_ocr=force_ocr,
+            skip_text=skip_text,
+        )
+        return 0 if ok else 1
+
+    if choice == "3":
+        inputs = _prompt_path_list("Input PDFs (comma-separated)")
+        out = _prompt_output("Output merged PDF", inputs=inputs)
+        return 0 if merge_pdfs(inputs, out) else 1
+
+    if choice == "4":
+        inp = _prompt_path("Input PDF")
+        mode = _prompt("Mode (single/range/chunk)", default="single").strip().lower()
+        out_dir = _prompt_path("Output directory", default=".")
+        prefix = _prompt("Filename prefix (optional)", default="")
+        pr = _prompt("Page range (for mode=range)", default="1-10")
+        chunk = _prompt_int("Chunk size (for mode=chunk)", default=10)
+        ok = split_pdf(inp, mode=mode, page_range=pr, chunk_size=chunk, output_dir=out_dir, prefix=prefix)
+        return 0 if ok else 1
+
+    if choice == "5":
+        folder = _prompt_path("Image folder")
+        out = _prompt_output("Output PDF", default="merged_output.pdf", base_dir=folder)
+        files = _prompt_path_list("Filenames (comma-separated, optional)", default="") or None
+        return 0 if jpeg_to_pdf_merge(folder, files, out) else 1
+
+    if choice == "6":
+        inp = _prompt_path("Input PDF")
+        out = _prompt_output("Output PDF", inputs=[inp])
+        return 0 if compress_pdf(inp, out) else 1
+
+    if choice == "7":
+        inp = _prompt_path("Input PDF")
+        out = _prompt_output("Output TXT (optional)", inputs=[inp], default="")
+        out_path = out if out else None
+        return 0 if extract_text_from_pdf(inp, out_path) is not None else 1
+
+    if choice == "8":
+        inp = _prompt_path("Input PDF")
+        out = _prompt_output("Output encrypted PDF", inputs=[inp])
+        pw = _prompt("Password")
+        return 0 if encrypt_pdf(inp, out, pw) is not None else 1
+
+    if choice == "9":
+        inp = _prompt_path("Input PDF")
+        out = _prompt_output("Output decrypted PDF", inputs=[inp])
+        pw = _prompt("Password")
+        return 0 if decrypt_pdf(inp, out, pw) is not None else 1
+
+    if choice == "10":
+        inp = _prompt_path("Input PDF")
+        out = _prompt_output("Output PDF", inputs=[inp])
+        angle = _prompt_int("Angle (90/180/270)", default=90)
+        pages = _prompt("Pages (optional, e.g. 1-3,6)", default="")
+        pages_val = pages if pages else None
+        return 0 if rotate_pdf(inp, out, angle, pages=pages_val) else 1
+
+    if choice == "11":
+        inp = _prompt_path("Input PDF")
+        out = _prompt_output("Output PDF", inputs=[inp])
+        pages = _prompt("Pages to delete (e.g. 1-3,6)")
+        return 0 if delete_pages_pdf(inp, out, pages) else 1
+
+    if choice == "12":
+        inp = _prompt_path("Input PDF")
+        out = _prompt_output("Output PDF", inputs=[inp])
+        order_raw = _prompt("New order (comma-separated, e.g. 2,1,3)")
+        try:
+            order = _parse_order(order_raw)
+        except ValueError as exc:
+            logger.error("Invalid order %r: %s", order_raw, exc)
+            return 1
+        return 0 if reorder_pages_pdf(inp, out, order) else 1
+
+    if choice == "13":
+        inp = _prompt_path("Input PDF")
+        out = _prompt_output("Output PDF", inputs=[inp])
+        header = _prompt('Header (optional, supports {page}/{pages})', default="")
+        footer = _prompt('Footer (optional, supports {page}/{pages})', default="")
+        margin = _prompt_float("Margin (points)", default=36)
+        fontsize = _prompt_float("Font size", default=10)
+        return 0 if add_header_footer_pdf(
+            inp,
+            out,
+            header=header or None,
+            footer=footer or None,
+            margin=margin,
+            fontsize=fontsize,
+        ) else 1
+
+    if choice == "14":
+        inp = _prompt_path("Input PDF")
+        out = _prompt_output("Output PDF", inputs=[inp])
+        text = _prompt("Watermark text")
+        fontsize = _prompt_float("Font size", default=48)
+        rotate = _prompt_int("Rotate", default=45)
+        opacity = _prompt_float("Opacity (0..1)", default=0.15)
+        return 0 if watermark_pdf(inp, out, text, fontsize=fontsize, rotate=rotate, opacity=opacity) else 1
+
+    if choice == "15":
+        inp = _prompt_path("Input PDF")
+        out_dir = _prompt_path("Output directory")
+        return 0 if extract_images_from_pdf(inp, out_dir) is not None else 1
+
+    if choice == "16":
+        inp = _prompt_path("Input PDF")
+        out_dir = _prompt_path("Output directory")
+        dpi = _prompt_int("DPI", default=150)
+        fmt = _prompt("Format (png/jpg)", default="png")
+        return 0 if pdf_to_images(inp, out_dir, dpi=dpi, fmt=fmt) is not None else 1
+
+    if choice == "17":
+        inp = _prompt_path("Input PDF")
+        return 0 if show_pdf_metadata(inp) is not None else 1
+
+    if choice == "18":
+        inp = _prompt_path("Input PDF")
+        out = _prompt_output("Output PDF", inputs=[inp])
+        raw = _prompt('Metadata JSON (e.g. {"/Title":"X"})')
+        try:
+            md = _parse_metadata_json(raw)
+        except ValueError as exc:
+            logger.error("Invalid JSON: %s", exc)
+            return 1
+        return 0 if set_pdf_metadata(inp, out, md) else 1
+
+    if choice == "19":
+        inp = _prompt_path("Input PDF")
+        return _show_pdf_info(inp)
+
+    if choice == "20":
+        folder = _prompt_path("Folder")
+        op = _prompt("Operation (ocr/compress/extract-text)")
+        glob_pattern = _prompt("Glob", default="*.pdf")
+        out_dir = _prompt_path("Output directory (optional)", default="")
+        out_dir_val = out_dir if out_dir else None
+        lang = _prompt("Language (ocr)", default="eng")
+        ok = batch_process_folder(
+            folder,
+            glob_pattern=glob_pattern,
+            operation=op,
+            output_dir=out_dir_val,
+            language=lang,
+        )
+        return 0 if ok > 0 else 1
+
+    if choice == "21":
+        inp = _prompt_path("Input PDF")
+        out = _prompt_output("Output PDF", inputs=[inp])
+        pages = _prompt('Pages to convert (e.g. 1,2,9-12,16)')
+        dpi = _prompt_int("DPI", default=150)
+        return 0 if deocr_selected_pages(inp, out, pages, dpi=dpi) else 1
+
+    logger.error("Unknown choice: %s", choice)
+    return None
 
 
 
