@@ -48,6 +48,10 @@ if exist "requirements.txt" (
     echo requirements.txt not found in the current directory.
 )
 
+REM Report which optional programs (Tesseract, Ghostscript, Word/LibreOffice) were found
+python src\pdfsuite.py check
+echo.
+
 REM Call start.bat if it exists
 if exist "start.bat" (
     echo Calling start.bat...
