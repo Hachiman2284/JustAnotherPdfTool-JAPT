@@ -9,7 +9,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Callable, Iterable, Sequence
+from typing import Callable, Iterable, NamedTuple, Sequence
 
 
 logger = logging.getLogger("pdfsuite")
@@ -1523,6 +1523,18 @@ _BATCH_OPERATIONS: dict[str, tuple[str, Callable[..., object], tuple[str, ...]]]
 }
 
 
+class BatchResult(NamedTuple):
+    """Outcome of batch_process_folder."""
+
+    succeeded: int
+    total: int
+
+    @property
+    def all_succeeded(self) -> bool:
+        """True when files matched and every one of them was processed."""
+        return self.total > 0 and self.succeeded == self.total
+
+
 def batch_process_folder(
     folder: str | Path,
     *,
@@ -1531,7 +1543,7 @@ def batch_process_folder(
     output_dir: str | Path | None = None,
     language: str = "eng",
     **options: object,
-) -> int:
+) -> BatchResult:
     """Run an operation on all PDFs in a folder.
 
     Supported operations and their options:
@@ -1555,7 +1567,8 @@ def batch_process_folder(
             use its own defaults.
 
     Returns:
-        Number of successfully processed files.
+        How many files succeeded out of how many matched. Both are 0 when
+        the request is rejected before any file is processed.
     """
     folder = _as_path(folder)
     if output_dir is None:
@@ -1563,12 +1576,12 @@ def batch_process_folder(
     output_dir = _as_path(output_dir)
     if not folder.exists():
         logger.error("Folder not found: %s", folder)
-        return 0
+        return BatchResult(0, 0)
     if operation not in _BATCH_OPERATIONS:
         logger.error(
             "Unknown batch operation: %s (choose from %s)", operation, ", ".join(_BATCH_OPERATIONS)
         )
-        return 0
+        return BatchResult(0, 0)
 
     suffix, func, allowed = _BATCH_OPERATIONS[operation]
     given = {k: v for k, v in {"language": language, **options}.items() if v is not None}
@@ -1580,31 +1593,40 @@ def batch_process_folder(
     # Check required options once, instead of failing on every file.
     if operation == "watermark" and not kwargs.get("text"):
         logger.error("Batch watermark needs the watermark text")
-        return 0
+        return BatchResult(0, 0)
     if operation == "rotate":
         angle = kwargs.get("angle")
         if not isinstance(angle, int) or angle % 90 != 0:
             logger.error("Batch rotate needs an angle that is a multiple of 90 (got %r)", angle)
-            return 0
+            return BatchResult(0, 0)
     if operation == "header-footer" and not (kwargs.get("header") or kwargs.get("footer")):
         logger.error("Batch header-footer needs a header, a footer, or both")
-        return 0
+        return BatchResult(0, 0)
 
     pdfs = sorted(folder.glob(glob_pattern))
     if not pdfs:
         logger.error("No PDFs matched %s in %s", glob_pattern, folder)
-        return 0
+        return BatchResult(0, 0)
 
-    ok = 0
+    failed: list[str] = []
     for pdf in pdfs:
         out = output_dir / f"{pdf.stem}{suffix}"
         result = func(pdf, out, **kwargs)
         # Most operations return a bool; extract-text returns a path or None.
-        if result is not None and result is not False:
-            ok += 1
+        if result is None or result is False:
+            failed.append(pdf.name)
 
-    logger.info("Batch complete: %d/%d succeeded", ok, len(pdfs))
-    return ok
+    ok = len(pdfs) - len(failed)
+    if failed:
+        logger.error(
+            "Batch finished with problems: %d of %d files failed: %s",
+            len(failed),
+            len(pdfs),
+            ", ".join(failed),
+        )
+    else:
+        logger.info("Batch complete: %d/%d succeeded", ok, len(pdfs))
+    return BatchResult(ok, len(pdfs))
 
 
 def _parse_order(value: str) -> list[int]:
@@ -2280,14 +2302,14 @@ def _run_menu_choice(choice: str) -> int | None:
             options["footer"] = _prompt('Footer (optional, supports {page}/{pages})', default="") or None
             options["margin"] = _prompt_float("Margin (points)", default=36)
             options["fontsize"] = _prompt_float("Font size", default=10)
-        ok = batch_process_folder(
+        result = batch_process_folder(
             folder,
             glob_pattern=glob_pattern,
             operation=op,
             output_dir=out_dir_val,
             **options,
         )
-        return 0 if ok > 0 else 1
+        return 0 if result.all_succeeded else 1
 
     if choice == "21":
         inp = _prompt_path("Input PDF")
@@ -2441,7 +2463,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _show_pdf_info(args.input_pdf)
 
     if cmd == "batch":
-        ok = batch_process_folder(
+        result = batch_process_folder(
             args.folder,
             glob_pattern=args.glob_pattern,
             operation=args.op,
@@ -2457,7 +2479,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             margin=args.margin,
             fontsize=args.fontsize,
         )
-        return 0 if ok > 0 else 1
+        return 0 if result.all_succeeded else 1
 
     logger.error("Unknown command")
     return 1

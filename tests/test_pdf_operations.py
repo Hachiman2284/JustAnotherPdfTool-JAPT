@@ -373,19 +373,19 @@ def folder(tmp_path) -> Path:
 
 def test_batch_watermark(folder, tmp_path) -> None:
     out_dir = tmp_path / "out"
-    assert pdfsuite.batch_process_folder(folder, operation="watermark", output_dir=out_dir, text="DRAFT") == 2
+    assert pdfsuite.batch_process_folder(folder, operation="watermark", output_dir=out_dir, text="DRAFT") == (2, 2)
     assert sorted(p.name for p in out_dir.iterdir()) == ["a_watermarked.pdf", "b_watermarked.pdf"]
     assert all("DRAFT" in t for t in page_texts(out_dir / "b_watermarked.pdf"))
 
 
 def test_batch_rotate_with_pages(folder) -> None:
-    assert pdfsuite.batch_process_folder(folder, operation="rotate", angle=270, pages="1") == 2
+    assert pdfsuite.batch_process_folder(folder, operation="rotate", angle=270, pages="1") == (2, 2)
     assert rotations(folder / "a_rotated.pdf") == [270, 0]
     assert rotations(folder / "b_rotated.pdf") == [270, 0, 0]
 
 
 def test_batch_header_footer(folder) -> None:
-    assert pdfsuite.batch_process_folder(folder, operation="header-footer", footer="{page}/{pages}") == 2
+    assert pdfsuite.batch_process_folder(folder, operation="header-footer", footer="{page}/{pages}") == (2, 2)
     texts = page_texts(folder / "b_header_footer.pdf")
     assert ["1/3" in texts[0], "2/3" in texts[1], "3/3" in texts[2]] == [True, True, True]
 
@@ -396,22 +396,45 @@ def test_batch_none_options_use_defaults(folder) -> None:
         pdfsuite.batch_process_folder(
             folder, operation="watermark", text="X", fontsize=None, rotate=None, opacity=None
         )
-        == 2
+        == (2, 2)
     )
 
 
 def test_batch_existing_operations_still_work(folder) -> None:
-    assert pdfsuite.batch_process_folder(folder, operation="extract-text", glob_pattern="a*.pdf") == 1
-    assert pdfsuite.batch_process_folder(folder, operation="compress") == 2
+    assert pdfsuite.batch_process_folder(folder, operation="extract-text", glob_pattern="a*.pdf") == (1, 1)
+    assert pdfsuite.batch_process_folder(folder, operation="compress") == (2, 2)
     assert "A page 2" in (folder / "a.txt").read_text(encoding="utf-8")
     assert (folder / "b_compressed.pdf").exists()
 
 
-def test_batch_partial_failure_counts_successes(folder) -> None:
+def test_batch_partial_failure_counts_successes(folder, caplog) -> None:
     # Page 3 exists only in b.pdf, so a.pdf fails and b.pdf succeeds.
-    assert pdfsuite.batch_process_folder(folder, operation="rotate", angle=90, pages="3") == 1
+    result = pdfsuite.batch_process_folder(folder, operation="rotate", angle=90, pages="3")
+    assert result == (1, 2)
+    assert not result.all_succeeded
     assert not (folder / "a_rotated.pdf").exists()
     assert (folder / "b_rotated.pdf").exists()
+    assert "1 of 2 files failed: a.pdf" in caplog.text
+
+
+def test_batch_result_all_succeeded() -> None:
+    assert pdfsuite.BatchResult(2, 2).all_succeeded
+    assert not pdfsuite.BatchResult(1, 2).all_succeeded
+    assert not pdfsuite.BatchResult(0, 0).all_succeeded
+
+
+def test_batch_partial_failure_reported_as_failed(folder, monkeypatch, capsys) -> None:
+    # CLI: exit code 1 when any file fails.
+    assert pdfsuite.main(["batch", "--folder", str(folder), "--op", "rotate", "--angle", "90", "--pages", "3"]) == 1
+    assert pdfsuite.main(["batch", "--folder", str(folder), "--op", "rotate", "--angle", "90", "--pages", "1"]) == 0
+
+    # Menu: shows "Failed." instead of "Done.".
+    answers = iter(["20", str(folder), "rotate", "", str(folder / "out"), "90", "3", "", "0"])
+    monkeypatch.setattr(builtins, "input", lambda prompt="": next(answers))
+    assert pdfsuite.interactive_menu() == 0
+    out = capsys.readouterr().out
+    assert "Failed. See the messages above." in out
+    assert "Done." not in out
 
 
 @pytest.mark.parametrize(
@@ -428,12 +451,12 @@ def test_batch_partial_failure_counts_successes(folder) -> None:
 )
 def test_batch_rejects_bad_requests_before_writing(folder, kwargs) -> None:
     before = sorted(folder.iterdir())
-    assert pdfsuite.batch_process_folder(folder, **kwargs) == 0
+    assert pdfsuite.batch_process_folder(folder, **kwargs) == (0, 0)
     assert sorted(folder.iterdir()) == before
 
 
 def test_batch_missing_folder(tmp_path) -> None:
-    assert pdfsuite.batch_process_folder(tmp_path / "nope", operation="compress") == 0
+    assert pdfsuite.batch_process_folder(tmp_path / "nope", operation="compress") == (0, 0)
 
 
 def test_batch_cli(folder, tmp_path) -> None:
