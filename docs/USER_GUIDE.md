@@ -54,7 +54,7 @@ You only do this once.
 
 After setup, **double-click `start.bat`** whenever you want to use JAP-T.
 
-Each time you start it, the tool does **one job** and then stops. Press any key to close the window, and double-click `start.bat` again for the next job.
+After each job the tool shows `Done.` or `Failed.` Press **Enter** to go back to the menu and pick the next job. When you are finished, choose **0) Exit** and press any key to close the window.
 
 ---
 
@@ -78,13 +78,13 @@ Type the number of the job you want and press **Enter**. The tool then asks ques
 
 - **File paths:** type the full location of the file, for example `C:\Users\You\Documents\report.pdf`.
   The easy way: in File Explorer, hold **Shift**, right-click the file, choose **Copy as path**, then press **Ctrl + V** in the JAP-T window to paste.
-  **Important:** "Copy as path" adds quote marks (`"`) around the path. Delete them before pressing Enter, or the tool will say the file was not found.
-- **Output files:** type the location and name for the new file, for example `C:\Users\You\Documents\report_small.pdf`. Missing folders are created for you. If a file with that name already exists, **it is overwritten**, so choose a new name to keep the original.
+  "Copy as path" adds quote marks (`"`) around the path. You can leave them in: the tool removes them for you.
+- **Output files:** type the location and name for the new file, for example `C:\Users\You\Documents\report_small.pdf`. Missing folders are created for you. If a file with that name already exists, the tool asks `Overwrite? (y/n)`. Type `y` to replace it, or press **Enter** to type a different name. The tool will not let you use the input file's own name as the output.
 - **`[default: …]`:** if a question shows a default, press **Enter** to accept it.
 - **Yes/no questions:** type `y` or `n`.
-- **To cancel:** press **Ctrl + C**.
+- **To cancel:** press **Ctrl + C**. This stops the current job and takes you back to the menu. Pressing **Ctrl + C** at the menu itself closes the tool.
 
-> **Tip:** Your original file is never changed. JAP-T always writes the result to the output file you name.
+> **Tip:** Your original file is never changed. JAP-T always writes the result to a separate output file that you name.
 
 ---
 
@@ -267,7 +267,7 @@ Add `--log-level WARNING` before the command name to see only warnings and error
 | Message or problem | What to do |
 |---|---|
 | `Python is not installed.` during setup | Install Python and tick **"Add python.exe to PATH"**. Then restart your computer and run `setupEnv.bat` again. |
-| `Input PDF not found` | Check the spelling of the path, and remove any `"` quote marks around it. |
+| `Input PDF not found` | Check the spelling of the path. Use **Copy as path** in File Explorer to avoid typos. |
 | `Missing dependency: …` | Run `setupEnv.bat` again to reinstall everything. |
 | OCR fails or mentions Tesseract or Ghostscript | Install both (see [What you need](#1-what-you-need)), then close and reopen JAP-T. |
 | `Prior OCR/text detected` | The PDF already has text. Answer `y` to **Force OCR**, or `y` to **Skip existing text**. |
