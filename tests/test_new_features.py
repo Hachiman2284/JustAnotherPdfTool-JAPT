@@ -3,7 +3,6 @@ from __future__ import annotations
 import builtins
 import io
 import logging
-import shutil
 import sys
 from pathlib import Path
 
@@ -47,8 +46,11 @@ def feed_input(monkeypatch, answers: list[str]) -> None:
     monkeypatch.setattr(builtins, "input", lambda prompt="": next(it))
 
 
+# Look the programs up the way the app does (PATH, then the usual Windows
+# install folders), so these tests also run on Windows.
 needs_ocr_tools = pytest.mark.skipif(
-    not (shutil.which("tesseract") and shutil.which("gs")), reason="needs Tesseract and Ghostscript"
+    not (pdfsuite._find_tesseract() and pdfsuite._find_ghostscript()),
+    reason="needs Tesseract and Ghostscript",
 )
 
 
@@ -475,9 +477,16 @@ def test_pdfa_encrypted_input(tmp_path, caplog) -> None:
 
 
 def test_pdfa_without_tesseract_explains(tmp_path, monkeypatch, caplog) -> None:
-    pytest.importorskip("ocrmypdf")
+    ocrmypdf = pytest.importorskip("ocrmypdf")
+    from ocrmypdf.exceptions import MissingDependencyError
+
+    def missing(*args, **kwargs):
+        raise MissingDependencyError("Could not find program 'tesseract' on the PATH")
+
+    # Simulate the missing program: emptying PATH is not enough on Windows,
+    # where ocrmypdf also finds Tesseract in Program Files and the registry.
+    monkeypatch.setattr(ocrmypdf, "ocr", missing)
     src = make_pdf(tmp_path / "in.pdf", 1)
-    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
     assert not pdfsuite.convert_to_pdfa(src, tmp_path / "a.pdf")
     assert "needs Tesseract and Ghostscript" in caplog.text
 
