@@ -9,7 +9,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Callable, Iterable, Sequence
 
 
 logger = logging.getLogger("pdfsuite")
@@ -1511,6 +1511,18 @@ def set_pdf_metadata(input_pdf: str | Path, output_pdf: str | Path, metadata: di
         return False
 
 
+# Batch operations: output filename suffix, the function that runs it, and
+# the extra options it accepts (passed through as keyword arguments).
+_BATCH_OPERATIONS: dict[str, tuple[str, Callable[..., object], tuple[str, ...]]] = {
+    "ocr": ("_ocr.pdf", ocr_pdf, ("language",)),
+    "compress": ("_compressed.pdf", compress_pdf, ()),
+    "extract-text": (".txt", extract_text_from_pdf, ()),
+    "watermark": ("_watermarked.pdf", watermark_pdf, ("text", "fontsize", "rotate", "opacity")),
+    "rotate": ("_rotated.pdf", rotate_pdf, ("angle", "pages")),
+    "header-footer": ("_header_footer.pdf", add_header_footer_pdf, ("header", "footer", "margin", "fontsize")),
+}
+
+
 def batch_process_folder(
     folder: str | Path,
     *,
@@ -1518,13 +1530,19 @@ def batch_process_folder(
     operation: str,
     output_dir: str | Path | None = None,
     language: str = "eng",
+    **options: object,
 ) -> int:
     """Run an operation on all PDFs in a folder.
 
-    Supported operations:
-        - "ocr"
+    Supported operations and their options:
+        - "ocr": language
         - "compress"
         - "extract-text"
+        - "watermark": text (required), fontsize, rotate, opacity
+        - "rotate": angle (required, a multiple of 90), pages
+        - "header-footer": header and/or footer (one required), margin, fontsize
+
+    Each output is named after its input plus a suffix, e.g. "a_rotated.pdf".
 
     Args:
         folder: Folder containing PDFs.
@@ -1532,6 +1550,9 @@ def batch_process_folder(
         operation: Operation name.
         output_dir: Where outputs are written. If None, uses folder.
         language: OCR language (for operation="ocr").
+        **options: Options for the operation (see above). None values are
+            ignored, so callers can pass every option and let each operation
+            use its own defaults.
 
     Returns:
         Number of successfully processed files.
@@ -1543,6 +1564,31 @@ def batch_process_folder(
     if not folder.exists():
         logger.error("Folder not found: %s", folder)
         return 0
+    if operation not in _BATCH_OPERATIONS:
+        logger.error(
+            "Unknown batch operation: %s (choose from %s)", operation, ", ".join(_BATCH_OPERATIONS)
+        )
+        return 0
+
+    suffix, func, allowed = _BATCH_OPERATIONS[operation]
+    given = {k: v for k, v in {"language": language, **options}.items() if v is not None}
+    kwargs = {k: v for k, v in given.items() if k in allowed}
+    ignored = sorted(k for k in given if k not in allowed and k != "language")
+    if ignored:
+        logger.warning("Options not used by %s: %s", operation, ", ".join(ignored))
+
+    # Check required options once, instead of failing on every file.
+    if operation == "watermark" and not kwargs.get("text"):
+        logger.error("Batch watermark needs the watermark text")
+        return 0
+    if operation == "rotate":
+        angle = kwargs.get("angle")
+        if not isinstance(angle, int) or angle % 90 != 0:
+            logger.error("Batch rotate needs an angle that is a multiple of 90 (got %r)", angle)
+            return 0
+    if operation == "header-footer" and not (kwargs.get("header") or kwargs.get("footer")):
+        logger.error("Batch header-footer needs a header, a footer, or both")
+        return 0
 
     pdfs = sorted(folder.glob(glob_pattern))
     if not pdfs:
@@ -1551,21 +1597,11 @@ def batch_process_folder(
 
     ok = 0
     for pdf in pdfs:
-        if operation == "ocr":
-            out = output_dir / f"{pdf.stem}_ocr.pdf"
-            if ocr_pdf(pdf, out, language=language):
-                ok += 1
-        elif operation == "compress":
-            out = output_dir / f"{pdf.stem}_compressed.pdf"
-            if compress_pdf(pdf, out):
-                ok += 1
-        elif operation == "extract-text":
-            out = output_dir / f"{pdf.stem}.txt"
-            if extract_text_from_pdf(pdf, out) is not None:
-                ok += 1
-        else:
-            logger.error("Unknown batch operation: %s", operation)
-            break
+        out = output_dir / f"{pdf.stem}{suffix}"
+        result = func(pdf, out, **kwargs)
+        # Most operations return a bool; extract-text returns a path or None.
+        if result is not None and result is not False:
+            ok += 1
 
     logger.info("Batch complete: %d/%d succeeded", ok, len(pdfs))
     return ok
@@ -1852,10 +1888,20 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("batch", help="Batch process a folder")
     p.add_argument("--folder", required=True)
-    p.add_argument("--op", required=True, choices=["ocr", "compress", "extract-text"])
+    p.add_argument("--op", required=True, choices=list(_BATCH_OPERATIONS))
     p.add_argument("--glob", dest="glob_pattern", default="*.pdf")
     p.add_argument("--out-dir", dest="output_dir", default=None)
-    p.add_argument("--lang", default="eng")
+    p.add_argument("--lang", default="eng", help="OCR language (ocr)")
+    # Defaults are None so each operation falls back to its own defaults.
+    p.add_argument("--text", default=None, help="Watermark text (watermark)")
+    p.add_argument("--rotate", type=float, default=None, help="Watermark angle in degrees (watermark)")
+    p.add_argument("--opacity", type=float, default=None, help="Watermark opacity 0..1 (watermark)")
+    p.add_argument("--angle", type=int, default=None, help="Rotation: 90, 180 or 270 (rotate)")
+    p.add_argument("--pages", default=None, help='Pages to rotate, e.g. "1-3,6"; default all (rotate)')
+    p.add_argument("--header", default=None, help="Header text, supports {page}/{pages} (header-footer)")
+    p.add_argument("--footer", default=None, help="Footer text, supports {page}/{pages} (header-footer)")
+    p.add_argument("--margin", type=float, default=None, help="Margin in points (header-footer)")
+    p.add_argument("--fontsize", type=float, default=None, help="Font size (watermark, header-footer)")
 
     return parser
 
@@ -2209,17 +2255,37 @@ def _run_menu_choice(choice: str) -> int | None:
 
     if choice == "20":
         folder = _prompt_path("Folder")
-        op = _prompt("Operation (ocr/compress/extract-text)")
+        op = _prompt(f"Operation ({'/'.join(_BATCH_OPERATIONS)})").strip().lower()
+        if op not in _BATCH_OPERATIONS:
+            logger.error("Unknown batch operation: %s", op)
+            return 1
         glob_pattern = _prompt("Glob", default="*.pdf")
         out_dir = _prompt_path("Output directory (optional)", default="")
         out_dir_val = out_dir if out_dir else None
-        lang = _prompt("Language (ocr)", default="eng")
+        # Ask only the questions the chosen operation needs, with the same
+        # defaults as the single-file menu options.
+        options: dict[str, object] = {}
+        if op == "ocr":
+            options["language"] = _prompt("Language", default="eng")
+        elif op == "watermark":
+            options["text"] = _prompt("Watermark text")
+            options["fontsize"] = _prompt_float("Font size", default=48)
+            options["rotate"] = _prompt_int("Rotate", default=45)
+            options["opacity"] = _prompt_float("Opacity (0..1)", default=0.15)
+        elif op == "rotate":
+            options["angle"] = _prompt_int("Angle (90/180/270)", default=90)
+            options["pages"] = _prompt("Pages (optional, e.g. 1-3,6)", default="") or None
+        elif op == "header-footer":
+            options["header"] = _prompt('Header (optional, supports {page}/{pages})', default="") or None
+            options["footer"] = _prompt('Footer (optional, supports {page}/{pages})', default="") or None
+            options["margin"] = _prompt_float("Margin (points)", default=36)
+            options["fontsize"] = _prompt_float("Font size", default=10)
         ok = batch_process_folder(
             folder,
             glob_pattern=glob_pattern,
             operation=op,
             output_dir=out_dir_val,
-            language=lang,
+            **options,
         )
         return 0 if ok > 0 else 1
 
@@ -2381,6 +2447,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             operation=args.op,
             output_dir=args.output_dir,
             language=args.lang,
+            text=args.text,
+            rotate=args.rotate,
+            opacity=args.opacity,
+            angle=args.angle,
+            pages=args.pages,
+            header=args.header,
+            footer=args.footer,
+            margin=args.margin,
+            fontsize=args.fontsize,
         )
         return 0 if ok > 0 else 1
 
