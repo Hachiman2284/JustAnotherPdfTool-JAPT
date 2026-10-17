@@ -6,6 +6,8 @@ A command-line PDF toolkit (`src/pdfsuite.py`).
 
 Run `setupEnv.bat`. It creates a virtual environment, installs `requirements.txt`, and starts the tool.
 
+New to the tool? Read the [User Guide](docs/USER_GUIDE.md) for step-by-step instructions on every feature.
+
 ## License
 
 The code in this repository is released under the [MIT License](LICENSE).
