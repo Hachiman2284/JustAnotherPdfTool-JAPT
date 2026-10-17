@@ -1,4 +1,5 @@
 import argparse
+import csv
 import getpass
 import io
 import json
@@ -46,6 +47,15 @@ def _ensure_parent_dir(path: Path) -> None:
 def _as_path(value: str | Path) -> Path:
     """Convert a string/Path input to a Path."""
     return value if isinstance(value, Path) else Path(value)
+
+
+def _open_pdf_for_edit(path: Path) -> "pymupdf.Document":
+    """Open a PDF with PyMuPDF from a copy in memory.
+
+    The file on disk is not kept open, so the result can be saved over the
+    original (output = input), which PyMuPDF refuses for a file it has open.
+    """
+    return pymupdf.open(stream=path.read_bytes(), filetype="pdf")
 
 
 def _natural_sort_key(name: str) -> list[int | str]:
@@ -304,12 +314,16 @@ def pdf_to_docx(input_pdf: str | Path, output_docx: str | Path) -> bool:
             cv.close()
 
 
+# LibreOffice is given this long to convert one document before it is stopped
+# (a hidden dialog, such as document recovery, would otherwise wait forever).
+_LIBREOFFICE_TIMEOUT_SECONDS = 300
+
+
 def docx_to_pdf(input_docx: str | Path, output_pdf: str | Path) -> bool:
     """Convert a DOCX file to PDF.
 
-    This tries the `docx2pdf` Python package first (recommended on Windows
-    where it uses Microsoft Word). If Word is not installed, or docx2pdf
-    fails, it falls back to a headless LibreOffice (`soffice`) conversion.
+    Uses Microsoft Word (through the `docx2pdf` package) when it is installed,
+    and falls back to a headless LibreOffice (`soffice`) conversion.
     """
     input_docx = _as_path(input_docx)
     output_pdf = _as_path(output_pdf)
@@ -317,73 +331,92 @@ def docx_to_pdf(input_docx: str | Path, output_pdf: str | Path) -> bool:
         logger.error("Input DOCX not found: %s", input_docx)
         return False
 
-    # docx2pdf drives Microsoft Word, so only try it where Word can exist
-    # (Windows with Word registered, or macOS).
-    if sys.platform == "darwin" or _word_installed():
-        try:
-            from docx2pdf import convert
+    try:
+        # Both converters write into a fresh temporary folder, and the result is
+        # moved to output_pdf only once it exists. Checking output_pdf itself
+        # would mistake an older file at that path for a successful conversion.
+        with tempfile.TemporaryDirectory() as tmp_name:
+            tmp = Path(tmp_name)
+            produced = tmp / (input_docx.stem + ".pdf")
+            backend = None
+
+            # docx2pdf drives Microsoft Word, so only try it where Word can exist.
+            if sys.platform == "darwin" or _word_installed():
+                try:
+                    from docx2pdf import convert
+
+                    convert(str(input_docx), str(produced))
+                    # docx2pdf can return without raising when Word fails to export.
+                    if produced.is_file():
+                        backend = "Microsoft Word"
+                    else:
+                        logger.warning("Microsoft Word did not produce a PDF; trying LibreOffice")
+                except ModuleNotFoundError:
+                    logger.debug("docx2pdf not available, will try LibreOffice")
+                except Exception as exc:
+                    logger.warning("Microsoft Word conversion failed: %s", exc)
+            else:
+                logger.debug("Microsoft Word not found, will try LibreOffice")
+
+            if backend is None:
+                produced.unlink(missing_ok=True)
+                if not _convert_with_libreoffice(input_docx, tmp):
+                    return False
+                if not produced.is_file():
+                    logger.error("LibreOffice did not produce a PDF for %s", input_docx.name)
+                    return False
+                backend = "LibreOffice"
 
             _ensure_parent_dir(output_pdf)
-            try:
-                # docx2pdf accepts (input, output) where output may be a folder
-                convert(str(input_docx), str(output_pdf))
-                # docx2pdf can return without raising when Word fails to export.
-                if output_pdf.is_file():
-                    logger.info("Converted DOCX -> PDF via docx2pdf: %s", output_pdf)
-                    return True
-                logger.warning("docx2pdf did not produce %s", output_pdf)
-            except Exception as exc:
-                logger.warning("docx2pdf conversion failed: %s", exc)
-        except ModuleNotFoundError:
-            logger.debug("docx2pdf not available, will try LibreOffice")
-    else:
-        logger.debug("Microsoft Word not found, will try LibreOffice")
-
-    # Fallback: LibreOffice/soffice (headless). Create output in a temporary
-    # directory and move the resulting file to the requested path.
-    soffice = _find_soffice()
-    if not soffice:
-        logger.error(
-            "No conversion backend available. Install `docx2pdf` or LibreOffice (soffice)."
-        )
-        return False
-
-    out_dir = None
-    try:
-        out_dir = Path(tempfile.mkdtemp())
-        cmd = [
-            soffice,
-            "--headless",
-            "--convert-to",
-            "pdf",
-            "--outdir",
-            str(out_dir),
-            str(input_docx),
-        ]
-        completed = subprocess.run(cmd, capture_output=True, text=True)
-        if completed.returncode != 0:
-            logger.error("LibreOffice conversion failed: %s", (completed.stderr or completed.stdout))
-            return False
-
-        produced = out_dir / (input_docx.stem + ".pdf")
-        if not produced.exists():
-            logger.error("LibreOffice did not produce expected PDF: %s", produced)
-            return False
-
-        _ensure_parent_dir(output_pdf)
-        shutil.move(str(produced), str(output_pdf))
-        logger.info("Converted DOCX -> PDF via LibreOffice: %s", output_pdf)
+            shutil.move(str(produced), str(output_pdf))
+        logger.info("Converted DOCX -> PDF via %s: %s", backend, output_pdf)
         return True
     except Exception as exc:
         logger.error("DOCX->PDF conversion failed: %s", exc)
         return False
-    finally:
-        if out_dir is not None:
-            try:
-                if out_dir.exists():
-                    shutil.rmtree(str(out_dir))
-            except Exception:
-                pass
+
+
+def _convert_with_libreoffice(input_docx: Path, out_dir: Path) -> bool:
+    """Convert input_docx to PDF in out_dir with headless LibreOffice."""
+    soffice = _find_soffice()
+    if not soffice:
+        logger.error("No conversion backend available. Install Microsoft Word or LibreOffice.")
+        return False
+
+    # A separate, throwaway profile: with the normal one, an already-open
+    # LibreOffice window takes over the job and nothing is written.
+    profile = (out_dir / "libreoffice-profile").as_uri()
+    cmd = [
+        soffice,
+        f"-env:UserInstallation={profile}",
+        "--headless",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        str(out_dir),
+        str(input_docx),
+    ]
+    try:
+        # LibreOffice prints UTF-8 (e.g. non-English file names), not the
+        # Windows code page, so decode it explicitly and never fail on it.
+        completed = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=_LIBREOFFICE_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        logger.error(
+            "LibreOffice did not finish within %d seconds and was stopped.",
+            _LIBREOFFICE_TIMEOUT_SECONDS,
+        )
+        return False
+    if completed.returncode != 0:
+        logger.error("LibreOffice conversion failed: %s", (completed.stderr or completed.stdout).strip())
+        return False
+    return True
 
 
 def ocr_pdf(
@@ -771,7 +804,7 @@ def compress_pdf(input_pdf: str | Path, output_pdf: str | Path) -> bool:
         ]
 
         try:
-            completed = subprocess.run(cmd, capture_output=True, text=True)
+            completed = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
             if completed.returncode != 0:
                 stderr = (completed.stderr or "").strip()
                 logger.warning("Ghostscript failed (%s, rc=%s): %s", profile, completed.returncode, stderr)
@@ -1172,7 +1205,7 @@ def add_header_footer_pdf(
         return False
 
     try:
-        doc = pymupdf.open(str(input_pdf))
+        doc = _open_pdf_for_edit(input_pdf)
         pages = int(doc.page_count)
         # Placeholders only add digits, so the templates decide the font.
         font_kwargs, _ = _pick_font(pymupdf, (header or "") + (footer or ""))
@@ -1235,7 +1268,7 @@ def watermark_pdf(
         return False
 
     try:
-        doc = pymupdf.open(str(input_pdf))
+        doc = _open_pdf_for_edit(input_pdf)
         pages = int(doc.page_count)
         font_kwargs, font = _pick_font(pymupdf, text)
         text_width = font.text_length(text, fontsize=fontsize)
@@ -1386,7 +1419,7 @@ def deocr_selected_pages(
         return False
 
     try:
-        src = pymupdf.open(str(input_pdf))
+        src = _open_pdf_for_edit(input_pdf)
         total_pages = int(src.page_count)
         selected_indices = set(_parse_page_selection(pages, total_pages=total_pages))
 
@@ -1617,7 +1650,7 @@ def add_bookmark(input_pdf: str | Path, output_pdf: str | Path, title: str, page
         # new one lands in reading order together with its predecessor's children.
         pos = next((i for i, (level, _, p) in enumerate(toc) if level == 1 and p > page), len(toc))
         toc.insert(pos, [1, title.strip(), page])
-        with pymupdf.open(str(input_pdf)) as doc:
+        with _open_pdf_for_edit(input_pdf) as doc:
             doc.set_toc(toc)
             _ensure_parent_dir(output_pdf)
             doc.save(str(output_pdf), garbage=1)
@@ -1655,7 +1688,7 @@ def redact_text_pdf(input_pdf: str | Path, output_pdf: str | Path, terms: Sequen
         return None
 
     try:
-        with pymupdf.open(str(input_pdf)) as doc:
+        with _open_pdf_for_edit(input_pdf) as doc:
             count = 0
             no_text_pages: list[int] = []
             for page in doc:
@@ -1854,6 +1887,14 @@ def batch_process_folder(
         return BatchResult(0, 0)
 
     pdfs = sorted(folder.glob(glob_pattern))
+    # When results are saved next to the originals, an earlier run's results
+    # (e.g. "a_rotated.pdf") match too; processing them again would create
+    # "a_rotated_rotated.pdf".
+    if output_dir.resolve() == folder.resolve():
+        earlier = [p for p in pdfs if p.name.lower().endswith(suffix.lower())]
+        if earlier:
+            logger.info("Skipping %d result(s) of an earlier %s run", len(earlier), operation)
+            pdfs = [p for p in pdfs if p not in earlier]
     if not pdfs:
         logger.error("No PDFs matched %s in %s", glob_pattern, folder)
         return BatchResult(0, 0)
@@ -2283,9 +2324,13 @@ def _prompt_path(value_name: str, *, default: str | None = None) -> str:
 
 
 def _prompt_path_list(value_name: str, *, default: str | None = None) -> list[str]:
-    """Prompt for a comma-separated list of paths, ignoring quotes around each one."""
+    """Prompt for a comma-separated list of paths, ignoring quotes around each one.
+
+    A path in double quotes (as "Copy as path" gives) may itself contain commas.
+    """
     raw = _prompt(value_name, default=default)
-    return [_strip_quotes(x.strip()) for x in raw.split(",") if x.strip()]
+    items = next(csv.reader([raw], skipinitialspace=True), [])
+    return [_strip_quotes(x.strip()) for x in items if x.strip()]
 
 
 def _prompt_output(
@@ -2471,9 +2516,10 @@ def _run_menu_choice(choice: str) -> int | None:
 
     if choice == "7":
         inp = _prompt_path("Input PDF")
-        out = _prompt_output("Output TXT (optional)", inputs=[inp], default="")
-        out_path = out if out else None
-        return 0 if extract_text_from_pdf(inp, out_path) is not None else 1
+        # Same default as extract_text_from_pdf, shown so the overwrite check covers it.
+        default_txt = str(Path(inp).with_suffix(".txt")) if inp else ""
+        out = _prompt_output("Output TXT", inputs=[inp], default=default_txt)
+        return 0 if extract_text_from_pdf(inp, out or None) is not None else 1
 
     if choice == "8":
         inp = _prompt_path("Input PDF")
@@ -2533,7 +2579,7 @@ def _run_menu_choice(choice: str) -> int | None:
         out = _prompt_output("Output PDF", inputs=[inp])
         text = _prompt("Watermark text")
         fontsize = _prompt_float("Font size", default=48)
-        rotate = _prompt_int("Rotate", default=45)
+        rotate = _prompt_float("Rotate", default=45)
         opacity = _prompt_float("Opacity (0..1)", default=0.15)
         return 0 if watermark_pdf(inp, out, text, fontsize=fontsize, rotate=rotate, opacity=opacity) else 1
 
@@ -2585,7 +2631,7 @@ def _run_menu_choice(choice: str) -> int | None:
         elif op == "watermark":
             options["text"] = _prompt("Watermark text")
             options["fontsize"] = _prompt_float("Font size", default=48)
-            options["rotate"] = _prompt_int("Rotate", default=45)
+            options["rotate"] = _prompt_float("Rotate", default=45)
             options["opacity"] = _prompt_float("Opacity (0..1)", default=0.15)
         elif op == "rotate":
             options["angle"] = _prompt_int("Angle (90/180/270)", default=90)

@@ -36,6 +36,14 @@ def test_prompt_path_list_strips_each_item(monkeypatch) -> None:
     assert _prompt_path_list("Inputs") == ["a.pdf", "b c.pdf", "c.pdf"]
 
 
+def test_prompt_path_list_keeps_commas_inside_quotes(monkeypatch) -> None:
+    # "Copy as path" output for two files, the first with a comma in its name.
+    _feed(monkeypatch, ['"C:\\Docs\\Invoice, March.pdf","C:\\Docs\\b.pdf"'])
+    assert _prompt_path_list("Inputs") == ["C:\\Docs\\Invoice, March.pdf", "C:\\Docs\\b.pdf"]
+    _feed(monkeypatch, ['"a, b.pdf" , c.pdf,d.pdf'])
+    assert _prompt_path_list("Inputs") == ["a, b.pdf", "c.pdf", "d.pdf"]
+
+
 def test_prompt_output_refuses_input_and_confirms_overwrite(monkeypatch, tmp_path) -> None:
     src = tmp_path / "in.pdf"
     existing = tmp_path / "existing.pdf"

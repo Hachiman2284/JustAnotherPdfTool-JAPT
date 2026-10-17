@@ -476,3 +476,72 @@ def test_batch_menu_asks_operation_questions(folder, monkeypatch) -> None:
     monkeypatch.setattr(builtins, "input", lambda prompt="": next(answers))
     assert pdfsuite.interactive_menu() == 0
     assert rotations(folder / "a_rotated.pdf") == [0, 180]
+
+
+# --- saving over the input (output = input) ---------------------------------
+
+
+@pytest.mark.parametrize(
+    ("call", "check"),
+    [
+        (lambda p: pdfsuite.add_header_footer_pdf(p, p, footer="FOOTERTEXT"), lambda t: "FOOTERTEXT" in t),
+        (lambda p: pdfsuite.watermark_pdf(p, p, "WMTEXT"), lambda t: "WMTEXT" in t),
+        (lambda p: pdfsuite.add_bookmark(p, p, "Start", 1), lambda t: True),
+        (lambda p: pdfsuite.redact_text_pdf(p, p, ["page 2"]), lambda t: "page 2" not in t),
+        (lambda p: pdfsuite.deocr_selected_pages(p, p, "1", dpi=72), lambda t: "page 1" not in t),
+    ],
+    ids=["header-footer", "watermark", "bookmark", "redact", "deocr"],
+)
+def test_edit_in_place(tmp_path, pdf3, call, check) -> None:
+    # PyMuPDF refuses to save over a file it has open; these must still work.
+    result = call(pdf3)
+    assert result not in (False, None)
+    text = " ".join(page_texts(pdf3))
+    assert check(text)
+    assert len(page_texts(pdf3)) == 3
+
+
+def test_edit_in_place_cli(tmp_path, pdf3) -> None:
+    assert pdfsuite.main(["watermark", "--in", str(pdf3), "--out", str(pdf3), "--text", "CLIWM"]) == 0
+    assert all("CLIWM" in t for t in page_texts(pdf3))
+
+
+# --- batch re-runs -----------------------------------------------------------
+
+
+def test_batch_rerun_skips_own_results(folder) -> None:
+    assert pdfsuite.batch_process_folder(folder, operation="rotate", angle=90) == (2, 2)
+    # Second run in the same folder: the *_rotated.pdf results are not rotated again.
+    assert pdfsuite.batch_process_folder(folder, operation="rotate", angle=90) == (2, 2)
+    names = sorted(p.name for p in folder.glob("*.pdf"))
+    assert names == ["a.pdf", "a_rotated.pdf", "b.pdf", "b_rotated.pdf"]
+
+
+def test_batch_separate_output_folder_keeps_all_inputs(folder, tmp_path) -> None:
+    # Files that merely look like results are still processed when results go elsewhere.
+    make_pdf(folder / "c_rotated.pdf", 1)
+    out = tmp_path / "out"
+    assert pdfsuite.batch_process_folder(folder, operation="rotate", angle=90, output_dir=out) == (3, 3)
+
+
+# --- menu details ------------------------------------------------------------
+
+
+def test_menu_extract_text_asks_before_overwriting_default(tmp_path, pdf3, monkeypatch) -> None:
+    notes = pdf3.with_suffix(".txt")
+    notes.write_text("my own notes", encoding="utf-8")
+    # Enter accepts the default (in.txt), which exists -> "n" keeps it -> choose another name.
+    other = tmp_path / "other.txt"
+    answers = iter(["7", str(pdf3), "", "n", str(other), "", "0"])
+    monkeypatch.setattr(builtins, "input", lambda prompt="": next(answers))
+    assert pdfsuite.interactive_menu() == 0
+    assert notes.read_text(encoding="utf-8") == "my own notes"
+    assert "doc page 2" in other.read_text(encoding="utf-8")
+
+
+def test_menu_watermark_accepts_decimal_angle(tmp_path, pdf3, monkeypatch) -> None:
+    out = tmp_path / "w.pdf"
+    answers = iter(["14", str(pdf3), str(out), "ANGLE", "", "22.5", "", "", "0"])
+    monkeypatch.setattr(builtins, "input", lambda prompt="": next(answers))
+    assert pdfsuite.interactive_menu() == 0
+    assert all("ANGLE" in t for t in page_texts(out))

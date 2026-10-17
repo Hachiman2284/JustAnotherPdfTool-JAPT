@@ -23,7 +23,7 @@ This guide assumes no programming experience. If you can open a folder and doubl
 
 - **Windows 10 or 11**
 - **Python 3.10 or newer** (3.13 recommended): download it from [python.org/downloads](https://www.python.org/downloads/).
-  During installation, **tick "Add python.exe to PATH"** on the first screen. Setup will not work without it.
+  The default installer options are fine. (Ticking "Add python.exe to PATH" is optional.)
 
 **Optional (only for some features)**
 
@@ -87,7 +87,7 @@ Type the number of the job you want and press **Enter**. The tool then asks ques
 
 - **File paths:** type the full location of the file, for example `C:\Users\You\Documents\report.pdf`.
   The easy way: in File Explorer, hold **Shift**, right-click the file, choose **Copy as path**, then press **Ctrl + V** in the JAP-T window to paste.
-  "Copy as path" adds quote marks (`"`) around the path. You can leave them in: the tool removes them for you.
+  "Copy as path" adds quote marks (`"`) around the path. You can leave them in: the tool removes them for you. When you list several files separated by commas, keep the quote marks: they keep a file name that contains a comma (such as `"Invoice, March.pdf"`) in one piece.
 - **Output files:** type the location and name for the new file, for example `C:\Users\You\Documents\report_small.pdf`. Missing folders are created for you. If a file with that name already exists, the tool asks `Overwrite? (y/n)`. Type `y` to replace it, or press **Enter** to type a different name. The tool will not let you use the input file's own name as the output.
 - **`[default: …]`:** if a question shows a default, press **Enter** to accept it.
 - **Yes/no questions:** type `y` or `n`.
@@ -107,7 +107,7 @@ Type the number of the job you want and press **Enter**. The tool then asks ques
 | 22 | **DOCX → PDF** | Turns a Word document into a PDF. Needs Microsoft Word or LibreOffice. | Input `.docx`, output PDF |
 | 5 | **Images → PDF** | Combines pictures into one PDF, one picture per page. Works with JPG, PNG, TIFF, BMP, GIF and WebP. JPG, PNG and TIFF keep their full quality; all photos are turned the right way up automatically. | Image folder, output name, optional list of file names |
 | 16 | **PDF → images** | Saves every page as a picture (`page_0001.png`, `page_0002.png`, …). | Input PDF, output folder, DPI, format (`png` or `jpg`) |
-| 7 | **Extract text** | Saves all the text in a PDF to a `.txt` file. Leave the output blank to save it next to the PDF with the same name. | Input PDF, output `.txt` (optional) |
+| 7 | **Extract text** | Saves all the text in a PDF to a `.txt` file. Press Enter at the output question to save it next to the PDF with the same name. | Input PDF, output `.txt` |
 | 15 | **Extract images** | Saves every picture embedded in the PDF into a folder. | Input PDF, output folder |
 
 **About option 5:** if you leave the file list blank, every picture in the folder is used, in name order (`img2` comes before `img10`). To choose the order yourself, type the names separated by commas: `cover.jpg, page1.png, page2.jpg`. If any listed file is missing or can't be read, nothing is created and the tool tells you which one. A multi-page TIFF becomes several pages. Transparent areas (in PNG, GIF or WebP) become white.
@@ -232,7 +232,7 @@ Operations you can choose:
 
 After you choose the operation, the tool asks the same questions as the single-file option (for example the watermark text, or the rotation angle) and uses your answers for every file.
 
-> **Tip:** results are saved next to the originals unless you choose an output folder. Running the same batch twice in one folder also processes the first run's results (for example `name_rotated_rotated.pdf`), so pick an output folder when you plan to repeat a batch.
+> **Tip:** results are saved next to the originals unless you choose an output folder. Running the same batch again in that folder skips the first run's results (it won't create `name_rotated_rotated.pdf`), but it does replace them with new ones.
 
 *Glob* chooses which files to include. `*.pdf` means all PDFs; `invoice*.pdf` means only PDFs whose names start with "invoice". Leave the output folder blank to save results next to the originals.
 
@@ -318,7 +318,7 @@ Add `--log-level WARNING` before the command name to see only warnings and error
 
 | Message or problem | What to do |
 |---|---|
-| `Python is not installed.` during setup | Install Python and tick **"Add python.exe to PATH"**. Then restart your computer and run `setupEnv.bat` again. |
+| `Python is not installed.` during setup | Install Python from [python.org/downloads](https://www.python.org/downloads/), then run `setupEnv.bat` again. |
 | `Input PDF not found` | Check the spelling of the path. Use **Copy as path** in File Explorer to avoid typos. |
 | `Missing dependency: …` | Run `setupEnv.bat` again to reinstall everything. |
 | OCR fails or mentions Tesseract or Ghostscript | Install both (see [What you need](#1-what-you-need)), then close and reopen JAP-T. Option **23) Check setup** shows whether they were found. |
@@ -330,6 +330,7 @@ Add `--log-level WARNING` before the command name to see only warnings and error
 | `Incorrect password` | Passwords are case-sensitive. Check Caps Lock. |
 | `page … out of bounds` | You asked for a page beyond the end of the PDF. Use option 19 to check how many pages it has. |
 | Compress says it saved 0% | The PDF was already as small as it gets. Installing Ghostscript can help with scanned or photo-heavy PDFs. |
-| The setup window closes before you can read the error | Open a Command Prompt in the JAP-T folder (see [section 7](#7-using-the-command-line-optional)) and type `setupEnv.bat` so the message stays on screen. |
+| `Setup did not finish.` | Read the message just above it, fix that problem, then run `setupEnv.bat` again. The window stays open until you press a key. |
+| `JAP-T is not set up yet.` when starting | Double-click `setupEnv.bat` first. |
 
 Still stuck? Run the same job with `--log-level DEBUG` from the command line and include the output when you ask for help.
