@@ -120,17 +120,87 @@ def _find_program(names: Sequence[str], windows_patterns: Sequence[str] = ()) ->
     return None
 
 
+def _registry_values(key_path: str, value_name: str) -> list[str]:
+    """Read a string value from HKEY_LOCAL_MACHINE and HKEY_CURRENT_USER (Windows only)."""
+    if not _IS_WINDOWS:
+        return []
+    import winreg
+
+    found: list[str] = []
+    for hive in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+        try:
+            with winreg.OpenKey(hive, key_path) as key:
+                value, _ = winreg.QueryValueEx(key, value_name)
+                if value:
+                    found.append(str(value))
+        except OSError:
+            continue
+    return found
+
+
+def _registry_subkeys(key_path: str) -> list[str]:
+    """Names of a registry key's subkeys in both hives (Windows only)."""
+    if not _IS_WINDOWS:
+        return []
+    import winreg
+
+    names: list[str] = []
+    for hive in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+        try:
+            with winreg.OpenKey(hive, key_path) as key:
+                i = 0
+                while True:
+                    try:
+                        names.append(winreg.EnumKey(key, i))
+                    except OSError:
+                        break
+                    i += 1
+        except OSError:
+            continue
+    return names
+
+
+def _first_file(dirs: Iterable[Path], names: Sequence[str]) -> str | None:
+    """Return the first dirs/name that exists, trying every name in each folder."""
+    for d in dirs:
+        for name in names:
+            candidate = d / name
+            if candidate.is_file():
+                return str(candidate)
+    return None
+
+
+# Installers record where they put these programs in the registry. ocrmypdf
+# looks there too, so checking it finds installs in custom folders that it
+# can use but PATH and Program Files don't show.
+_GS_REGISTRY_KEY = r"SOFTWARE\Artifex\GPL Ghostscript"
+_TESSERACT_REGISTRY_KEY = r"SOFTWARE\Tesseract-OCR"
+
+
 def _find_ghostscript() -> str | None:
     """Find the Ghostscript console program (gswin64c/gswin32c on Windows)."""
-    return _find_program(
+    exes = ("gswin64c.exe", "gswin32c.exe")
+    found = _find_program(
         ("gswin64c", "gswin32c", "gs"),
-        ("gs/*/bin/gswin64c.exe", "gs/*/bin/gswin32c.exe"),
+        tuple(f"gs/*/bin/{exe}" for exe in exes),
     )
+    if found or not _IS_WINDOWS:
+        return found
+    # Newest version first; GS_DLL is the DLL inside Ghostscript's bin folder.
+    versions = sorted(set(_registry_subkeys(_GS_REGISTRY_KEY)), key=_natural_sort_key, reverse=True)
+    dll_paths = [
+        dll for ver in versions for dll in _registry_values(f"{_GS_REGISTRY_KEY}\\{ver}", "GS_DLL")
+    ]
+    return _first_file((Path(dll).parent for dll in dll_paths), exes)
 
 
 def _find_tesseract() -> str | None:
     """Find Tesseract OCR."""
-    return _find_program(("tesseract",), ("Tesseract-OCR/tesseract.exe",))
+    found = _find_program(("tesseract",), ("Tesseract-OCR/tesseract.exe",))
+    if found or not _IS_WINDOWS:
+        return found
+    install_dirs = _registry_values(_TESSERACT_REGISTRY_KEY, "InstallDir")
+    return _first_file((Path(d) for d in install_dirs), ("tesseract.exe",))
 
 
 def _find_soffice() -> str | None:

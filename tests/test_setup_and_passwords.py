@@ -51,9 +51,45 @@ def _make_pdf(path: Path) -> Path:
 # --- finding programs -------------------------------------------------------
 
 
+class FakeWinreg:
+    """Stand-in for the winreg module, holding {(hive, key path): {"values": {}, "subkeys": []}}."""
+
+    HKEY_LOCAL_MACHINE = "HKLM"
+    HKEY_CURRENT_USER = "HKCU"
+
+    def __init__(self, keys: dict | None = None) -> None:
+        self.keys = keys or {}
+
+    class _Key:
+        def __init__(self, entry: dict) -> None:
+            self.entry = entry
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc) -> None:
+            return None
+
+    def OpenKey(self, hive, path):  # noqa: N802 - winreg's name
+        if (hive, path) not in self.keys:
+            raise FileNotFoundError(path)
+        return self._Key(self.keys[(hive, path)])
+
+    def QueryValueEx(self, key, name):  # noqa: N802
+        if name not in key.entry.get("values", {}):
+            raise FileNotFoundError(name)
+        return key.entry["values"][name], 1
+
+    def EnumKey(self, key, index):  # noqa: N802
+        subkeys = key.entry.get("subkeys", [])
+        if index >= len(subkeys):
+            raise OSError("no more subkeys")
+        return subkeys[index]
+
+
 @pytest.fixture
 def fake_windows(monkeypatch, tmp_path):
-    """Pretend to be on Windows with empty install folders and nothing on PATH."""
+    """Pretend to be on Windows with empty install folders, nothing on PATH and an empty registry."""
     for var in ("ProgramFiles", "ProgramW6432", "ProgramFiles(x86)", "LOCALAPPDATA"):
         monkeypatch.delenv(var, raising=False)
     pf, pf86, local = tmp_path / "pf", tmp_path / "pf86", tmp_path / "local"
@@ -62,6 +98,7 @@ def fake_windows(monkeypatch, tmp_path):
     monkeypatch.setenv("LOCALAPPDATA", str(local))
     monkeypatch.setattr(pdfsuite, "_IS_WINDOWS", True)
     monkeypatch.setattr(pdfsuite.shutil, "which", lambda name: None)
+    monkeypatch.setitem(sys.modules, "winreg", FakeWinreg())
     return pf, pf86, local
 
 
@@ -105,6 +142,45 @@ def test_find_soffice_in_program_files(fake_windows) -> None:
     pf, _, _ = fake_windows
     soffice = _touch_exe(pf / "LibreOffice" / "program" / "soffice.exe")
     assert pdfsuite._find_soffice() == str(soffice)
+
+
+@pytest.mark.parametrize("hive", ["HKLM", "HKCU"])
+def test_find_tesseract_custom_folder_from_registry(fake_windows, monkeypatch, tmp_path, hive) -> None:
+    # Installed outside Program Files; only the installer's registry entry says where.
+    custom = tmp_path / "Personal-Data" / "TesseractOCR"
+    tess = _touch_exe(custom / "tesseract.exe")
+    registry = {(hive, r"SOFTWARE\Tesseract-OCR"): {"values": {"InstallDir": str(custom)}}}
+    monkeypatch.setitem(sys.modules, "winreg", FakeWinreg(registry))
+    assert pdfsuite._find_tesseract() == str(tess)
+
+
+def test_find_tesseract_registry_points_to_missing_folder(fake_windows, monkeypatch, tmp_path) -> None:
+    registry = {("HKLM", r"SOFTWARE\Tesseract-OCR"): {"values": {"InstallDir": str(tmp_path / "gone")}}}
+    monkeypatch.setitem(sys.modules, "winreg", FakeWinreg(registry))
+    assert pdfsuite._find_tesseract() is None
+
+
+def test_find_ghostscript_from_registry_newest_version(fake_windows, monkeypatch, tmp_path) -> None:
+    old = _touch_exe(tmp_path / "D" / "gs9" / "bin" / "gswin64c.exe")
+    new = _touch_exe(tmp_path / "D" / "gs10" / "bin" / "gswin64c.exe")
+    base = r"SOFTWARE\Artifex\GPL Ghostscript"
+    registry = {
+        ("HKLM", base): {"subkeys": ["9.56.1", "10.06.0"]},
+        ("HKLM", base + r"\9.56.1"): {"values": {"GS_DLL": str(old.parent / "gsdll64.dll")}},
+        ("HKLM", base + r"\10.06.0"): {"values": {"GS_DLL": str(new.parent / "gsdll64.dll")}},
+    }
+    monkeypatch.setitem(sys.modules, "winreg", FakeWinreg(registry))
+    assert pdfsuite._find_ghostscript() == str(new)
+
+
+def test_program_files_wins_over_registry(fake_windows, monkeypatch, tmp_path) -> None:
+    pf, _, _ = fake_windows
+    standard = _touch_exe(pf / "Tesseract-OCR" / "tesseract.exe")
+    custom = tmp_path / "custom"
+    _touch_exe(custom / "tesseract.exe")
+    registry = {("HKLM", r"SOFTWARE\Tesseract-OCR"): {"values": {"InstallDir": str(custom)}}}
+    monkeypatch.setitem(sys.modules, "winreg", FakeWinreg(registry))
+    assert pdfsuite._find_tesseract() == str(standard)
 
 
 def test_find_program_nothing_installed(fake_windows) -> None:

@@ -33,7 +33,7 @@ This guide assumes no programming experience. If you can open a folder and doubl
 | Ghostscript | OCR and PDF/A; also gives the best results for Compress | [ghostscript.com/releases](https://ghostscript.com/releases/gsdnld.html) |
 | Microsoft Word *or* LibreOffice | Option 22 (DOCX → PDF) | [libreoffice.org](https://www.libreoffice.org/download/) (free) |
 
-You can skip these and install them later. Every other feature works without them. Install them with their normal installer; you don't need to change any Windows settings (such as PATH), because JAP-T looks in the usual install folders.
+You can skip these and install them later. Every other feature works without them. Install them with their normal installer; you don't need to change any Windows settings (such as PATH), because JAP-T looks in the usual install folders and wherever the installer recorded them.
 
 ---
 
