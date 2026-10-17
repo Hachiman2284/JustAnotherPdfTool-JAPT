@@ -8,6 +8,27 @@ Run `setupEnv.bat`. It creates a virtual environment, installs `requirements.txt
 
 New to the tool? Read the [User Guide](docs/USER_GUIDE.md) for step-by-step instructions on every feature.
 
+## Running the tests
+
+The `tests/` folder holds automated checks for every feature. You don't need them to use the
+tool; they're for checking that a change hasn't broken anything.
+
+After running `setupEnv.bat` once, double-click **`run_tests.bat`**. The first time, it installs
+the test runner (`pytest`, from `requirements-dev.txt`). It ends with a summary such as
+`155 passed`. Any failure names the test and shows what went wrong.
+
+From a Command Prompt you can also run a subset, e.g. `run_tests.bat -k redact`, or run
+pytest directly:
+
+```bat
+venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+venv\Scripts\python.exe -m pytest tests
+```
+
+Tests for OCR and PDF/A run only when Tesseract and Ghostscript are installed, and are reported
+as *skipped* otherwise. The HEIC test is skipped where the installed `pi_heif` can't create
+HEIC files.
+
 ## License
 
 The code in this repository is released under the [MIT License](LICENSE).

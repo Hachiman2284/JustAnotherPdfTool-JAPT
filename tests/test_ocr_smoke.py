@@ -7,7 +7,7 @@ from pathlib import Path
 # pdfsuite lives in ../src, which is not on sys.path for `python tests/...` or pytest.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from pdfsuite import configure_logging, jpeg_to_pdf_merge, ocr_pdf  # noqa: E402
+from pdfsuite import _find_ghostscript, _find_tesseract, configure_logging, jpeg_to_pdf_merge, ocr_pdf  # noqa: E402
 
 
 def _make_test_jpg(path: Path) -> None:
@@ -77,6 +77,10 @@ def _run(out_dir: Path) -> int:
 
 def test_ocr_smoke() -> None:
     """pytest entry point (the script entry point is main())."""
+    import pytest
+
+    if not (_find_tesseract() and _find_ghostscript()):
+        pytest.skip("needs Tesseract and Ghostscript")
     assert main() == 0
 
 

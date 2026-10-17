@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import builtins
+import os
 import stat
 import sys
 from pathlib import Path
@@ -65,9 +66,12 @@ def fake_windows(monkeypatch, tmp_path):
 
 
 def test_find_program_uses_path_first(monkeypatch, tmp_path) -> None:
-    exe = _touch_exe(tmp_path / "bin" / "tesseract")
+    # Windows only runs files with a program extension such as .exe.
+    exe = _touch_exe(tmp_path / "bin" / ("tesseract.exe" if os.name == "nt" else "tesseract"))
     monkeypatch.setenv("PATH", str(exe.parent))
-    assert pdfsuite._find_tesseract() == str(exe)
+    found = pdfsuite._find_tesseract()
+    # Compare as files: Windows may report the extension as ".EXE".
+    assert found is not None and os.path.samefile(found, exe)
 
 
 def test_find_program_off_windows_ignores_install_folders(monkeypatch, tmp_path) -> None:
