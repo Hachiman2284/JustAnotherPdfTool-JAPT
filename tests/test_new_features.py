@@ -119,17 +119,6 @@ def test_images_multipage_tiff(tmp_path) -> None:
     assert len(page_sizes(tmp_path / "out.pdf")) == 3
 
 
-def test_images_heic(tmp_path) -> None:
-    pi_heif = pytest.importorskip("pi_heif")
-    pi_heif.register_heif_opener()
-    try:
-        _save(Image.new("RGB", (64, 32), "orange"), tmp_path / "phone.heic", format="HEIF")
-    except Exception as exc:  # pragma: no cover - depends on the libheif build
-        pytest.skip(f"cannot write HEIC here: {exc}")
-    assert pdfsuite.images_to_pdf(tmp_path, ["phone.heic"], "out.pdf")
-    assert page_sizes(tmp_path / "out.pdf")[0][0] == 2 * page_sizes(tmp_path / "out.pdf")[0][1]
-
-
 def test_images_corrupt_file_fails_cleanly(tmp_path) -> None:
     _save(Image.new("RGB", (10, 10)), tmp_path / "good.png", format="PNG")
     (tmp_path / "bad.webp").write_bytes(b"not really an image")
@@ -149,8 +138,6 @@ def test_images_cli_new_and_old_names(tmp_path) -> None:
     assert pdfsuite.main(["images-to-pdf", "--folder", str(tmp_path), "--out", "new.pdf"]) == 0
     assert pdfsuite.main(["jpg-merge", "--folder", str(tmp_path), "--out", "old.pdf"]) == 0
     assert (tmp_path / "new.pdf").exists() and (tmp_path / "old.pdf").exists()
-    # The old function name still works too.
-    assert pdfsuite.jpeg_to_pdf_merge(tmp_path, jpg_files=["a.png"], output_pdf="fn.pdf")
 
 
 # --- insert pages -------------------------------------------------------------
@@ -275,80 +262,18 @@ def test_add_bookmark_invalid(tmp_path, ten, title, page) -> None:
     assert not out.exists()
 
 
-def test_bookmarks_export_import_roundtrip(tmp_path, ten) -> None:
-    toc = [[1, "Intro", 1], [1, "Chapter 1", 2], [2, "Section 1.1", 3], [3, "Deep", 4], [1, "Ünïcode ✓", 10]]
-    src = _with_toc(ten, tmp_path / "bm.pdf", toc)
-    txt = tmp_path / "bm.txt"
-    assert pdfsuite.export_bookmarks(src, txt)
-    content = txt.read_text(encoding="utf-8")
-    assert "\n    4 Deep\n" in content and content.startswith("# JAP-T bookmarks")
-
-    out = tmp_path / "copy.pdf"
-    assert pdfsuite.import_bookmarks(ten, out, txt)
-    assert pdfsuite.get_bookmarks(out) == [tuple(t) for t in toc]
-    assert page_texts(out) == page_texts(ten)  # pages untouched
-
-
-def test_import_accepts_notepad_files(tmp_path, ten) -> None:
-    txt = tmp_path / "bm.txt"
-    # Byte-order mark, Windows line endings, tabs, blank lines and comments.
-    txt.write_bytes("﻿# comment\r\n1 First\r\n\t2 Child\r\n\r\n  3 Also child\r\n5 Second\r\n".encode("utf-8"))
-    out = tmp_path / "o.pdf"
-    assert pdfsuite.import_bookmarks(ten, out, txt)
-    assert pdfsuite.get_bookmarks(out) == [(1, "First", 1), (2, "Child", 2), (2, "Also child", 3), (1, "Second", 5)]
-
-
-def test_import_empty_file_removes_bookmarks(tmp_path, ten) -> None:
-    src = _with_toc(ten, tmp_path / "bm.pdf", [[1, "A", 1]])
-    txt = tmp_path / "empty.txt"
-    txt.write_text("# nothing here\n")
-    out = tmp_path / "o.pdf"
-    assert pdfsuite.import_bookmarks(src, out, txt)
-    assert pdfsuite.get_bookmarks(out) == []
-
-
-@pytest.mark.parametrize(
-    ("text", "message"),
-    [
-        ("1 A\nx B\n", "line 2: expected"),
-        ("1 A\n2\n", "line 2: expected"),
-        ("1 A\n11 B\n", "line 2: page 11 is out of range"),
-        ("1 A\n    2 B\n", "line 2: indented too far"),
-        ("  1 A\n", "line 1: indented too far"),
-    ],
-)
-def test_import_reports_bad_line(tmp_path, ten, caplog, text, message) -> None:
-    txt = tmp_path / "bm.txt"
-    txt.write_text(text)
-    out = tmp_path / "o.pdf"
-    assert not pdfsuite.import_bookmarks(ten, out, txt)
-    assert message in caplog.text
-    assert not out.exists()
-
-
 def test_bookmarks_cli(tmp_path, ten) -> None:
-    out, txt, back = tmp_path / "o.pdf", tmp_path / "b.txt", tmp_path / "back.pdf"
+    out = tmp_path / "o.pdf"
     assert pdfsuite.main(["bookmarks-add", "--in", str(ten), "--out", str(out), "--title", "Cover", "--page", "1"]) == 0
     assert pdfsuite.main(["bookmarks-show", "--in", str(out)]) == 0
-    assert pdfsuite.main(["bookmarks-export", "--in", str(out), "--out", str(txt)]) == 0
-    assert pdfsuite.main(["bookmarks-import", "--in", str(ten), "--out", str(back), "--file", str(txt)]) == 0
-    assert pdfsuite.get_bookmarks(back) == [(1, "Cover", 1)]
+    assert pdfsuite.get_bookmarks(out) == [(1, "Cover", 1)]
 
 
 def test_bookmarks_menu(tmp_path, ten, monkeypatch) -> None:
-    out, txt, back = tmp_path / "o.pdf", tmp_path / "b.txt", tmp_path / "back.pdf"
-    feed_input(
-        monkeypatch,
-        [
-            "25", "add", str(ten), str(out), "Chapter", "4", "",
-            "25", "show", str(out), "",
-            "25", "export", str(out), str(txt), "",
-            "25", "import", str(ten), str(txt), str(back), "",
-            "0",
-        ],
-    )
+    out = tmp_path / "o.pdf"
+    feed_input(monkeypatch, ["25", "add", str(ten), str(out), "Chapter", "4", "", "25", "show", str(out), "", "0"])
     assert pdfsuite.interactive_menu() == 0
-    assert pdfsuite.get_bookmarks(back) == [(1, "Chapter", 4)]
+    assert pdfsuite.get_bookmarks(out) == [(1, "Chapter", 4)]
 
 
 # --- redaction ----------------------------------------------------------------

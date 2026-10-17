@@ -12,6 +12,15 @@ import tempfile
 from pathlib import Path
 from typing import Callable, Iterable, NamedTuple, Sequence
 
+try:
+    # Used by almost every feature, so loaded once here. The other libraries
+    # are loaded only by the features that need them, to keep start-up fast.
+    import pymupdf
+    from pypdf import PdfReader, PdfWriter
+    from pypdf.errors import FileNotDecryptedError
+except ModuleNotFoundError as exc:  # setup did not finish
+    sys.exit(f"Missing Python package: {exc.name}. Run setupEnv.bat again.")
+
 
 logger = logging.getLogger("pdfsuite")
 
@@ -39,36 +48,9 @@ def _as_path(value: str | Path) -> Path:
     return value if isinstance(value, Path) else Path(value)
 
 
-def _bytes_like_to_str(value: str | bytes | memoryview) -> str:
-    """Convert bytes-like values to a UTF-8 string.
-
-    Raises:
-        UnicodeDecodeError: If the bytes are not valid UTF-8. Silently dropping
-            bytes would change (or empty) a password.
-    """
-    if isinstance(value, str):
-        return value
-    return bytes(value).decode("utf-8")
-
-
 def _natural_sort_key(name: str) -> list[int | str]:
     """Sort key that orders embedded numbers numerically ("img2" before "img10")."""
     return [int(part) if part.isdigit() else part.lower() for part in re.split(r"(\d+)", name)]
-
-
-def _save_dropping_unsupported_kwargs(obj: object, path: Path, kwargs: dict) -> None:
-    """Call obj.save(path, **kwargs), dropping kwargs the installed library version rejects."""
-    save_fn = getattr(obj, "save")
-    current = dict(kwargs)
-    while True:
-        try:
-            save_fn(str(path), **current)
-            return
-        except TypeError as exc:
-            m = re.search(r"unexpected keyword argument '([^']+)'", str(exc))
-            if not m or m.group(1) not in current:
-                raise
-            current.pop(m.group(1))
 
 
 _IS_WINDOWS = os.name == "nt"
@@ -496,12 +478,6 @@ def merge_pdfs(pdf_paths: Sequence[str | Path], output_pdf: str | Path) -> bool:
         return False
 
     try:
-        from pypdf import PdfReader, PdfWriter
-    except ModuleNotFoundError:
-        logger.error("Missing dependency: pypdf (install with `pip install pypdf`)")
-        return False
-
-    try:
         writer = PdfWriter()
         for path in resolved:
             # append() keeps each input's bookmarks and form fields.
@@ -518,14 +494,14 @@ def merge_pdfs(pdf_paths: Sequence[str | Path], output_pdf: str | Path) -> bool:
 
 
 # Image types images_to_pdf picks up from a folder.
-_IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".gif", ".webp", ".heic", ".heif")
+_IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".gif", ".webp")
 
 
 def _image_for_img2pdf(path: Path) -> str | bytes:
     """Return what img2pdf should embed for one image file.
 
     img2pdf embeds JPEG, and PNG/TIFF without transparency, as-is (no quality
-    loss). Anything else (BMP, GIF, WebP, HEIC, or images with transparency)
+    loss). Anything else (BMP, GIF, WebP, or images with transparency)
     is converted to PNG with Pillow first; transparent areas become white.
     """
     if path.suffix.lower() in {".jpg", ".jpeg"}:
@@ -559,7 +535,7 @@ def images_to_pdf(
 ) -> bool:
     """Combine images into a single PDF, one image per page.
 
-    Supports JPG, PNG, TIFF, BMP, GIF, WebP and HEIC/HEIF (iPhone photos).
+    Supports JPG, PNG, TIFF, BMP, GIF and WebP.
 
     Args:
         image_folder: Folder containing images.
@@ -571,9 +547,8 @@ def images_to_pdf(
         True if successful, otherwise False.
 
     Notes:
-        Requires the third-party packages `img2pdf` and `pillow` (`pi_heif`
-        for HEIC). JPEG data is embedded as-is (no lossy re-encode) and EXIF
-        orientation is applied.
+        Requires the third-party packages `img2pdf` and `pillow`. JPEG data
+        is embedded as-is (no lossy re-encode) and EXIF orientation is applied.
     """
     image_folder = _as_path(image_folder)
     output_pdf = _as_path(output_pdf)
@@ -589,14 +564,6 @@ def images_to_pdf(
     except ModuleNotFoundError:
         logger.error("Missing dependency: img2pdf (install with `pip install img2pdf`)")
         return False
-
-    try:
-        # Lets Pillow open HEIC/HEIF photos; other formats work without it.
-        from pi_heif import register_heif_opener
-
-        register_heif_opener()
-    except ModuleNotFoundError:
-        logger.debug("pi_heif not available; HEIC images are not supported")
 
     try:
         if image_files is None:
@@ -643,15 +610,6 @@ def images_to_pdf(
         return False
 
 
-def jpeg_to_pdf_merge(
-    image_folder: str | Path,
-    jpg_files: Sequence[str] | None = None,
-    output_pdf: str | Path = "merged_output.pdf",
-) -> bool:
-    """Older name for images_to_pdf, kept so existing scripts keep working."""
-    return images_to_pdf(image_folder, jpg_files, output_pdf)
-
-
 def split_pdf(
     input_pdf: str | Path,
     *,
@@ -678,12 +636,6 @@ def split_pdf(
     output_dir = _as_path(output_dir)
     if not input_pdf.exists():
         logger.error("Input PDF not found: %s", input_pdf)
-        return False
-
-    try:
-        from pypdf import PdfReader, PdfWriter
-    except ModuleNotFoundError:
-        logger.error("Missing dependency: pypdf (install with `pip install pypdf`)")
         return False
 
     try:
@@ -745,8 +697,8 @@ def compress_pdf(input_pdf: str | Path, output_pdf: str | Path) -> bool:
     This function tries multiple strategies:
     1) Ghostscript (if available): best size reduction, but can be lossy
        because it may downsample/recompress images.
-    2) PyMuPDF (if available): lossless cleanup/deflate/garbage collection.
-    3) pikepdf (if available): qpdf-style stream/object compression.
+    2) PyMuPDF: lossless cleanup/deflate/garbage collection.
+    3) pikepdf: qpdf-style stream/object compression.
 
     Args:
         input_pdf: Input PDF.
@@ -855,43 +807,32 @@ def compress_pdf(input_pdf: str | Path, output_pdf: str | Path) -> bool:
 
     def _compress_with_pymupdf_lossless(out_path: Path) -> str | None:
         try:
-            import pymupdf
-        except ModuleNotFoundError:
-            return None
-
-        try:
             with pymupdf.open(str(input_pdf)) as doc:
-                # garbage/clean/deflate are generally safe and can remove unused objects.
-                # No "linear": MuPDF >= 1.26 rejects linearisation with a non-TypeError.
-                kwargs = {
-                    "garbage": 4,
-                    "clean": True,
-                    "deflate": True,
-                    # If supported by the installed version, these can reduce size further.
-                    "deflate_images": True,
-                    "deflate_fonts": True,
-                }
-                _save_dropping_unsupported_kwargs(doc, out_path, kwargs)
+                # garbage/clean/deflate are safe and remove unused objects.
+                doc.save(
+                    str(out_path),
+                    garbage=4,
+                    clean=True,
+                    deflate=True,
+                    deflate_images=True,
+                    deflate_fonts=True,
+                )
             return "pymupdf(lossless)"
         except Exception as exc:
             logger.warning("PyMuPDF compression failed: %s", exc)
             return None
 
     def _compress_with_pikepdf_lossless(out_path: Path) -> str | None:
-        try:
-            import pikepdf as pike
-        except ModuleNotFoundError:
-            return None
+        import pikepdf
 
         try:
-            with pike.open(str(input_pdf)) as pdf:
-                kwargs = {
-                    "compress_streams": True,
-                    "object_stream_mode": pike.ObjectStreamMode.generate,
-                    # Some versions support linearize; keep best-effort.
-                    "linearize": True,
-                }
-                _save_dropping_unsupported_kwargs(pdf, out_path, kwargs)
+            with pikepdf.open(str(input_pdf)) as pdf:
+                pdf.save(
+                    str(out_path),
+                    compress_streams=True,
+                    object_stream_mode=pikepdf.ObjectStreamMode.generate,
+                    linearize=True,
+                )
             return "pikepdf(lossless)"
         except Exception as exc:
             logger.warning("pikepdf compression failed: %s", exc)
@@ -905,7 +846,6 @@ def compress_pdf(input_pdf: str | Path, output_pdf: str | Path) -> bool:
     tmp = None
     try:
         tmp = _mktemp_pdf()
-        ran_any = False
         for strategy in (
             _compress_with_ghostscript_auto,
             _compress_with_pymupdf_lossless,
@@ -914,7 +854,6 @@ def compress_pdf(input_pdf: str | Path, output_pdf: str | Path) -> bool:
             method = strategy(tmp)
             if method is None:
                 continue
-            ran_any = True
             after = _size(tmp)
             if after > 0 and (before <= 0 or after < before):
                 _ensure_parent_dir(output_pdf)
@@ -922,13 +861,6 @@ def compress_pdf(input_pdf: str | Path, output_pdf: str | Path) -> bool:
                 _log_sizes(method)
                 return True
             logger.info("%s did not reduce size (%d -> %d bytes)", method, before, after)
-
-        if not ran_any:
-            logger.error(
-                "No available compressor. Install Ghostscript or `pymupdf` or `pikepdf`. "
-                "(Ghostscript gives the biggest size reductions.)"
-            )
-            return False
 
         logger.info("PDF is already optimized; writing an unchanged copy -> %s", output_pdf)
         if not (output_pdf.exists() and os.path.samefile(input_pdf, output_pdf)):
@@ -962,22 +894,13 @@ def extract_text_from_pdf(input_pdf: str | Path, output_txt: str | Path | None =
         return None
 
     try:
-        import pymupdf
-    except ModuleNotFoundError:
-        logger.error("Missing dependency: pymupdf (install with `pip install pymupdf`)")
-        return None
-
-    try:
         doc = pymupdf.open(str(input_pdf))
         output_txt = _as_path(output_txt) if output_txt is not None else input_pdf.with_suffix(".txt")
         _ensure_parent_dir(output_txt)
 
         with open(output_txt, "w", encoding="utf-8") as f:
             for page in doc:
-                text = page.get_text("text")
-                if not isinstance(text, str):
-                    text = str(text)
-                f.write(text)
+                f.write(page.get_text("text"))
 
         logger.info("Extracted text -> %s", output_txt)
         return output_txt
@@ -993,8 +916,6 @@ def pdf_page_count(input_pdf: str | Path) -> int | None:
         logger.error("Input PDF not found: %s", input_pdf)
         return None
     try:
-        from pypdf import PdfReader
-        from pypdf.errors import FileNotDecryptedError
         reader = PdfReader(str(input_pdf))
         return len(reader.pages)
     except FileNotDecryptedError:
@@ -1012,7 +933,6 @@ def pdf_is_encrypted(input_pdf: str | Path) -> bool | None:
         logger.error("Input PDF not found: %s", input_pdf)
         return None
     try:
-        from pypdf import PdfReader
         reader = PdfReader(str(input_pdf))
         return bool(reader.is_encrypted)
     except Exception as exc:
@@ -1020,13 +940,13 @@ def pdf_is_encrypted(input_pdf: str | Path) -> bool | None:
         return None
 
 
-def encrypt_pdf(input_pdf: str | Path, output_pdf: str | Path, password: str | bytes | memoryview) -> Path | None:
+def encrypt_pdf(input_pdf: str | Path, output_pdf: str | Path, password: str) -> Path | None:
     """Encrypt a PDF with a user password.
 
     Args:
         input_pdf: Input PDF.
         output_pdf: Output PDF.
-        password: Password (string or bytes-like).
+        password: Password.
 
     Returns:
         Output path on success, otherwise None.
@@ -1038,19 +958,12 @@ def encrypt_pdf(input_pdf: str | Path, output_pdf: str | Path, password: str | b
         return None
 
     try:
-        from pypdf import PdfReader, PdfWriter
-    except ModuleNotFoundError:
-        logger.error("Missing dependency: pypdf (install with `pip install pypdf`)")
-        return None
-
-    try:
         reader = PdfReader(str(input_pdf))
         # Clone (not add_page) so bookmarks, form fields and metadata are kept.
         writer = PdfWriter(clone_from=reader)
 
-        user_password = _bytes_like_to_str(password)
         # pypdf defaults to RC4-128, which is broken; AES-256 uses `cryptography`.
-        writer.encrypt(user_password, algorithm="AES-256")
+        writer.encrypt(password, algorithm="AES-256")
 
         _ensure_parent_dir(output_pdf)
         with open(output_pdf, "wb") as f:
@@ -1065,14 +978,14 @@ def encrypt_pdf(input_pdf: str | Path, output_pdf: str | Path, password: str | b
 def decrypt_pdf(
     input_pdf: str | Path,
     output_pdf: str | Path,
-    password: str | bytes | memoryview,
+    password: str,
 ) -> Path | None:
     """Decrypt an encrypted PDF and write an unencrypted copy.
 
     Args:
         input_pdf: Input PDF.
         output_pdf: Output PDF.
-        password: Password (string or bytes-like).
+        password: Password.
 
     Returns:
         Output path on success, otherwise None.
@@ -1084,16 +997,9 @@ def decrypt_pdf(
         return None
 
     try:
-        from pypdf import PdfReader, PdfWriter
-    except ModuleNotFoundError:
-        logger.error("Missing dependency: pypdf (install with `pip install pypdf`)")
-        return None
-
-    try:
         reader = PdfReader(str(input_pdf))
         if reader.is_encrypted:
-            # pypdf accepts bytes passwords as-is; decoding could alter them.
-            ok = reader.decrypt(password if isinstance(password, str) else bytes(password))
+            ok = reader.decrypt(password)
             if not ok:
                 logger.error("Incorrect password or unable to decrypt.")
                 return None
@@ -1131,12 +1037,6 @@ def rotate_pdf(input_pdf: str | Path, output_pdf: str | Path, angle: int, pages:
         return False
 
     try:
-        from pypdf import PdfReader, PdfWriter
-    except ModuleNotFoundError:
-        logger.error("Missing dependency: pypdf (install with `pip install pypdf`)")
-        return False
-
-    try:
         reader = PdfReader(str(input_pdf))
         # Clone (not add_page) so bookmarks, form fields and metadata are kept.
         writer = PdfWriter(clone_from=reader)
@@ -1146,12 +1046,7 @@ def rotate_pdf(input_pdf: str | Path, output_pdf: str | Path, angle: int, pages:
 
         for idx, page in enumerate(writer.pages):
             if selected is None or idx in selected:
-                if hasattr(page, "rotate"):
-                    page.rotate(angle)
-                else:
-                    rotate_clockwise = getattr(page, "rotate_clockwise", None)
-                    if callable(rotate_clockwise):
-                        rotate_clockwise(angle)
+                page.rotate(angle)
 
         _ensure_parent_dir(output_pdf)
         with open(output_pdf, "wb") as f:
@@ -1178,12 +1073,6 @@ def delete_pages_pdf(input_pdf: str | Path, output_pdf: str | Path, pages: str) 
     output_pdf = _as_path(output_pdf)
     if not input_pdf.exists():
         logger.error("Input PDF not found: %s", input_pdf)
-        return False
-
-    try:
-        from pypdf import PdfReader, PdfWriter
-    except ModuleNotFoundError:
-        logger.error("Missing dependency: pypdf (install with `pip install pypdf`)")
         return False
 
     try:
@@ -1225,12 +1114,6 @@ def reorder_pages_pdf(input_pdf: str | Path, output_pdf: str | Path, order: Sequ
     output_pdf = _as_path(output_pdf)
     if not input_pdf.exists():
         logger.error("Input PDF not found: %s", input_pdf)
-        return False
-
-    try:
-        from pypdf import PdfReader, PdfWriter
-    except ModuleNotFoundError:
-        logger.error("Missing dependency: pypdf (install with `pip install pypdf`)")
         return False
 
     try:
@@ -1286,12 +1169,6 @@ def add_header_footer_pdf(
     output_pdf = _as_path(output_pdf)
     if not input_pdf.exists():
         logger.error("Input PDF not found: %s", input_pdf)
-        return False
-
-    try:
-        import pymupdf
-    except ModuleNotFoundError:
-        logger.error("Missing dependency: pymupdf (install with `pip install pymupdf`)")
         return False
 
     try:
@@ -1358,12 +1235,6 @@ def watermark_pdf(
         return False
 
     try:
-        import pymupdf
-    except ModuleNotFoundError:
-        logger.error("Missing dependency: pymupdf (install with `pip install pymupdf`)")
-        return False
-
-    try:
         doc = pymupdf.open(str(input_pdf))
         pages = int(doc.page_count)
         font_kwargs, font = _pick_font(pymupdf, text)
@@ -1409,12 +1280,6 @@ def extract_images_from_pdf(input_pdf: str | Path, output_dir: str | Path) -> in
     output_dir = _as_path(output_dir)
     if not input_pdf.exists():
         logger.error("Input PDF not found: %s", input_pdf)
-        return None
-
-    try:
-        import pymupdf
-    except ModuleNotFoundError:
-        logger.error("Missing dependency: pymupdf (install with `pip install pymupdf`)")
         return None
 
     try:
@@ -1464,12 +1329,6 @@ def pdf_to_images(
     output_dir = _as_path(output_dir)
     if not input_pdf.exists():
         logger.error("Input PDF not found: %s", input_pdf)
-        return None
-
-    try:
-        import pymupdf
-    except ModuleNotFoundError:
-        logger.error("Missing dependency: pymupdf (install with `pip install pymupdf`)")
         return None
 
     try:
@@ -1527,12 +1386,6 @@ def deocr_selected_pages(
         return False
 
     try:
-        import pymupdf
-    except ModuleNotFoundError:
-        logger.error("Missing dependency: pymupdf (install with `pip install pymupdf`)")
-        return False
-
-    try:
         src = pymupdf.open(str(input_pdf))
         total_pages = int(src.page_count)
         selected_indices = set(_parse_page_selection(pages, total_pages=total_pages))
@@ -1582,12 +1435,6 @@ def show_pdf_metadata(input_pdf: str | Path) -> dict[str, str] | None:
         return None
 
     try:
-        from pypdf import PdfReader
-    except ModuleNotFoundError:
-        logger.error("Missing dependency: pypdf (install with `pip install pypdf`)")
-        return None
-
-    try:
         reader = PdfReader(str(input_pdf))
         meta = reader.metadata
         result: dict[str, str] = {}
@@ -1617,12 +1464,6 @@ def set_pdf_metadata(input_pdf: str | Path, output_pdf: str | Path, metadata: di
     output_pdf = _as_path(output_pdf)
     if not input_pdf.exists():
         logger.error("Input PDF not found: %s", input_pdf)
-        return False
-
-    try:
-        from pypdf import PdfReader, PdfWriter
-    except ModuleNotFoundError:
-        logger.error("Missing dependency: pypdf (install with `pip install pypdf`)")
         return False
 
     try:
@@ -1678,12 +1519,6 @@ def insert_pages_pdf(
         return False
 
     try:
-        from pypdf import PdfReader, PdfWriter
-    except ModuleNotFoundError:
-        logger.error("Missing dependency: pypdf (install with `pip install pypdf`)")
-        return False
-
-    try:
         # Clone (not add_page) so bookmarks, form fields and metadata are kept.
         writer = PdfWriter(clone_from=PdfReader(str(input_pdf)))
         total = len(writer.pages)
@@ -1718,13 +1553,6 @@ def insert_pages_pdf(
         return False
 
 
-_BOOKMARKS_FILE_HEADER = """\
-# JAP-T bookmarks. One bookmark per line: the page number, a space, then the title.
-# Indent a line by 2 spaces (or a tab) to put it under the bookmark above it.
-# Lines starting with # are ignored.
-"""
-
-
 def get_bookmarks(input_pdf: str | Path) -> list[tuple[int, str, int]] | None:
     """Return a PDF's bookmarks as (level, title, page) tuples (level and page 1-based).
 
@@ -1733,12 +1561,6 @@ def get_bookmarks(input_pdf: str | Path) -> list[tuple[int, str, int]] | None:
     input_pdf = _as_path(input_pdf)
     if not input_pdf.exists():
         logger.error("Input PDF not found: %s", input_pdf)
-        return None
-
-    try:
-        import pymupdf
-    except ModuleNotFoundError:
-        logger.error("Missing dependency: pymupdf (install with `pip install pymupdf`)")
         return None
 
     try:
@@ -1758,17 +1580,6 @@ def show_bookmarks(input_pdf: str | Path) -> bool:
         logger.info("This PDF has no bookmarks.")
     for level, title, page in bookmarks:
         logger.info("%s%s (page %s)", "  " * (level - 1), title, page if page > 0 else "none")
-    return True
-
-
-def _write_bookmarks(input_pdf: Path, output_pdf: Path, toc: list[list]) -> bool:
-    """Replace the bookmarks of input_pdf with toc and save to output_pdf."""
-    import pymupdf
-
-    with pymupdf.open(str(input_pdf)) as doc:
-        doc.set_toc(toc)
-        _ensure_parent_dir(output_pdf)
-        doc.save(str(output_pdf), garbage=1)
     return True
 
 
@@ -1806,100 +1617,14 @@ def add_bookmark(input_pdf: str | Path, output_pdf: str | Path, title: str, page
         # new one lands in reading order together with its predecessor's children.
         pos = next((i for i, (level, _, p) in enumerate(toc) if level == 1 and p > page), len(toc))
         toc.insert(pos, [1, title.strip(), page])
-        _write_bookmarks(input_pdf, output_pdf, toc)
+        with pymupdf.open(str(input_pdf)) as doc:
+            doc.set_toc(toc)
+            _ensure_parent_dir(output_pdf)
+            doc.save(str(output_pdf), garbage=1)
         logger.info("Added bookmark %r -> page %d -> %s", title.strip(), page, output_pdf)
         return True
     except Exception as exc:
         logger.error("Adding bookmark failed: %s", exc)
-        return False
-
-
-def export_bookmarks(input_pdf: str | Path, output_txt: str | Path) -> bool:
-    """Write a PDF's bookmarks to a text file that import_bookmarks can read back.
-
-    Edit the file (e.g. in Notepad) and import it to change the bookmarks.
-    """
-    output_txt = _as_path(output_txt)
-    bookmarks = get_bookmarks(input_pdf)
-    if bookmarks is None:
-        return False
-
-    try:
-        lines = [_BOOKMARKS_FILE_HEADER]
-        for level, title, page in bookmarks:
-            if page <= 0:
-                logger.warning("Bookmark %r does not point to a page; left out", title)
-                continue
-            lines.append(f"{'  ' * (level - 1)}{page} {title}\n")
-        _ensure_parent_dir(output_txt)
-        output_txt.write_text("".join(lines), encoding="utf-8")
-        logger.info("Exported %d bookmark(s) -> %s", len(lines) - 1, output_txt)
-        return True
-    except Exception as exc:
-        logger.error("Exporting bookmarks failed: %s", exc)
-        return False
-
-
-def _parse_bookmarks_text(text: str, *, total_pages: int) -> list[list]:
-    """Parse the export_bookmarks text format into a PyMuPDF table of contents.
-
-    Raises:
-        ValueError: With the line number, if a line is invalid.
-    """
-    toc: list[list] = []
-    for line_no, raw in enumerate(text.splitlines(), start=1):
-        if not raw.strip() or raw.lstrip().startswith("#"):
-            continue
-        indent = raw[: len(raw) - len(raw.lstrip())]
-        level = indent.count("\t") + indent.count(" ") // 2 + 1
-        parts = raw.strip().split(maxsplit=1)
-        if len(parts) < 2 or not parts[0].isdigit():
-            raise ValueError(f"line {line_no}: expected '<page> <title>', got {raw.strip()!r}")
-        page = int(parts[0])
-        if not 1 <= page <= total_pages:
-            raise ValueError(f"line {line_no}: page {page} is out of range (1..{total_pages})")
-        prev_level = toc[-1][0] if toc else 0
-        if level > prev_level + 1:
-            raise ValueError(f"line {line_no}: indented too far (more than one step under the line above)")
-        toc.append([level, parts[1], page])
-    return toc
-
-
-def import_bookmarks(input_pdf: str | Path, output_pdf: str | Path, bookmarks_txt: str | Path) -> bool:
-    """Replace a PDF's bookmarks with those in a text file (format of export_bookmarks).
-
-    An empty file (or one with only comments) removes all bookmarks.
-    """
-    input_pdf = _as_path(input_pdf)
-    output_pdf = _as_path(output_pdf)
-    bookmarks_txt = _as_path(bookmarks_txt)
-    if not input_pdf.exists():
-        logger.error("Input PDF not found: %s", input_pdf)
-        return False
-    if not bookmarks_txt.exists():
-        logger.error("Bookmarks file not found: %s", bookmarks_txt)
-        return False
-
-    try:
-        import pymupdf  # noqa: F401
-    except ModuleNotFoundError:
-        logger.error("Missing dependency: pymupdf (install with `pip install pymupdf`)")
-        return False
-
-    try:
-        total = pdf_page_count(input_pdf)
-        if total is None:
-            return False
-        # utf-8-sig: Notepad may add a byte-order mark.
-        toc = _parse_bookmarks_text(bookmarks_txt.read_text(encoding="utf-8-sig"), total_pages=total)
-        _write_bookmarks(input_pdf, output_pdf, toc)
-        logger.info("Imported %d bookmark(s) -> %s", len(toc), output_pdf)
-        return True
-    except ValueError as exc:
-        logger.error("Invalid bookmarks file: %s", exc)
-        return False
-    except Exception as exc:
-        logger.error("Importing bookmarks failed: %s", exc)
         return False
 
 
@@ -1927,12 +1652,6 @@ def redact_text_pdf(input_pdf: str | Path, output_pdf: str | Path, terms: Sequen
         return None
     if not terms:
         logger.error("Enter the text to remove")
-        return None
-
-    try:
-        import pymupdf
-    except ModuleNotFoundError:
-        logger.error("Missing dependency: pymupdf (install with `pip install pymupdf`)")
         return None
 
     try:
@@ -2252,8 +1971,8 @@ def _parse_page_selection(selection: str, *, total_pages: int, clamp_end: bool =
     return indices
 
 
-# Python packages from requirements.txt that features import at run time.
-_FEATURE_PACKAGES = ("pymupdf", "pypdf", "pikepdf", "img2pdf", "pdf2docx", "ocrmypdf")
+# Packages loaded only by the features that use them (PyMuPDF and pypdf load at start-up).
+_FEATURE_PACKAGES = ("pikepdf", "img2pdf", "pdf2docx", "ocrmypdf")
 
 
 def check_setup() -> int:
@@ -2361,7 +2080,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p = sub.add_parser(
         "images-to-pdf",
         aliases=["jpg-merge"],
-        help="Combine images (JPG, PNG, TIFF, BMP, GIF, WebP, HEIC) into a PDF",
+        help="Combine images (JPG, PNG, TIFF, BMP, GIF, WebP) into a PDF",
     )
     p.add_argument("--folder", required=True)
     p.add_argument("--out", dest="output_pdf", default="merged_output.pdf")
@@ -2460,15 +2179,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--out", dest="output_pdf", required=True)
     p.add_argument("--title", required=True)
     p.add_argument("--page", type=int, required=True)
-
-    p = sub.add_parser("bookmarks-export", help="Save bookmarks to an editable text file")
-    p.add_argument("--in", dest="input_pdf", required=True)
-    p.add_argument("--out", dest="output_txt", required=True)
-
-    p = sub.add_parser("bookmarks-import", help="Replace bookmarks with those in a text file")
-    p.add_argument("--in", dest="input_pdf", required=True)
-    p.add_argument("--out", dest="output_pdf", required=True)
-    p.add_argument("--file", dest="bookmarks_txt", required=True, help="Text file in the bookmarks-export format")
 
     p = sub.add_parser("redact", help="Permanently remove text")
     p.add_argument("--in", dest="input_pdf", required=True)
@@ -2620,6 +2330,39 @@ def _prompt_output(
         return out
 
 
+# Menu entries in display order: (choice, label).
+_MENU_ITEMS = (
+    ("1", "PDF -> DOCX"),
+    ("2", "OCR PDF"),
+    ("3", "Merge PDFs"),
+    ("4", "Split PDF"),
+    ("5", "Images (JPG/PNG/...) -> PDF"),
+    ("6", "Compress PDF"),
+    ("7", "Extract text"),
+    ("8", "Encrypt PDF"),
+    ("9", "Decrypt PDF"),
+    ("10", "Rotate pages"),
+    ("11", "Delete pages"),
+    ("12", "Reorder pages"),
+    ("13", "Add header/footer"),
+    ("14", "Watermark"),
+    ("15", "Extract images"),
+    ("16", "PDF -> images"),
+    ("17", "Show metadata"),
+    ("18", "Set metadata"),
+    ("19", "PDF info (pages/encrypted)"),
+    ("20", "Batch folder"),
+    ("21", "Convert selected pages to non-OCR"),
+    ("22", "DOCX -> PDF"),
+    ("23", "Check setup"),
+    ("24", "Insert pages"),
+    ("25", "Bookmarks (show/add)"),
+    ("26", "Redact (permanently remove) text"),
+    ("27", "Save as PDF/A (archiving)"),
+    ("0", "Exit"),
+)
+
+
 def interactive_menu() -> int:
     """Run the interactive menu until the user chooses Exit.
 
@@ -2631,34 +2374,8 @@ def interactive_menu() -> int:
     while True:
         # Menu text goes to stdout so it stays visible at any --log-level.
         print("\nPDFSuite Menu")
-        print("1) PDF -> DOCX")
-        print("2) OCR PDF")
-        print("3) Merge PDFs")
-        print("4) Split PDF")
-        print("5) Images (JPG/PNG/...) -> PDF")
-        print("6) Compress PDF")
-        print("7) Extract text")
-        print("8) Encrypt PDF")
-        print("9) Decrypt PDF")
-        print("10) Rotate pages")
-        print("11) Delete pages")
-        print("12) Reorder pages")
-        print("13) Add header/footer")
-        print("14) Watermark")
-        print("15) Extract images")
-        print("16) PDF -> images")
-        print("17) Show metadata")
-        print("18) Set metadata")
-        print("19) PDF info (pages/encrypted)")
-        print("20) Batch folder")
-        print("21) Convert selected pages to non-OCR")
-        print("22) DOCX -> PDF")
-        print("23) Check setup")
-        print("24) Insert pages")
-        print("25) Bookmarks (show/add/export/import)")
-        print("26) Redact (permanently remove) text")
-        print("27) Save as PDF/A (archiving)")
-        print("0) Exit")
+        for number, label in _MENU_ITEMS:
+            print(f"{number}) {label}")
 
         try:
             choice = _prompt("Choose", default="0")
@@ -2911,7 +2628,7 @@ def _run_menu_choice(choice: str) -> int | None:
         return 0 if ok else 1
 
     if choice == "25":
-        action = _prompt("Action (show/add/export/import)", default="show").strip().lower()
+        action = _prompt("Action (show/add)", default="show").strip().lower()
         if action == "show":
             return 0 if show_bookmarks(_prompt_path("Input PDF")) else 1
         if action == "add":
@@ -2920,15 +2637,6 @@ def _run_menu_choice(choice: str) -> int | None:
             title = _prompt("Bookmark title")
             page = _prompt_int("Page it opens")
             return 0 if add_bookmark(inp, out, title, page) else 1
-        if action == "export":
-            inp = _prompt_path("Input PDF")
-            out = _prompt_output("Output text file (e.g. bookmarks.txt)", inputs=[inp])
-            return 0 if export_bookmarks(inp, out) else 1
-        if action == "import":
-            inp = _prompt_path("Input PDF")
-            txt = _prompt_path("Bookmarks text file")
-            out = _prompt_output("Output PDF", inputs=[inp, txt])
-            return 0 if import_bookmarks(inp, out, txt) else 1
         logger.error("Unknown action: %s", action)
         return 1
 
@@ -3102,12 +2810,6 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if cmd == "bookmarks-add":
         return 0 if add_bookmark(args.input_pdf, args.output_pdf, args.title, args.page) else 1
-
-    if cmd == "bookmarks-export":
-        return 0 if export_bookmarks(args.input_pdf, args.output_txt) else 1
-
-    if cmd == "bookmarks-import":
-        return 0 if import_bookmarks(args.input_pdf, args.output_pdf, args.bookmarks_txt) else 1
 
     if cmd == "redact":
         return 0 if redact_text_pdf(args.input_pdf, args.output_pdf, args.terms) is not None else 1
