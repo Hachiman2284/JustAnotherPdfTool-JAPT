@@ -466,3 +466,81 @@ def test_docx_to_pdf_with_real_libreoffice(monkeypatch, tmp_path) -> None:
     out = tmp_path / "out" / "result.pdf"
     assert pdfsuite.docx_to_pdf(src, out)
     assert "Hello from a Word document" in pdfsuite.pymupdf.open(str(out))[0].get_text()
+
+
+# --- LibreOffice must never check for or install updates ---------------------
+
+
+def _profile_settings(profile: Path) -> dict[tuple[str, str], str]:
+    """(path, setting) -> value from a LibreOffice registrymodifications.xcu."""
+    import xml.dom.minidom
+
+    doc = xml.dom.minidom.parse(str(profile / "user" / "registrymodifications.xcu"))
+    found = {}
+    for item in doc.getElementsByTagName("item"):
+        for prop in item.getElementsByTagName("prop"):
+            value = prop.getElementsByTagName("value")[0].firstChild.data
+            found[(item.getAttribute("oor:path"), prop.getAttribute("oor:name"))] = value
+    return found
+
+
+UPDATE_SETTINGS = {
+    ("/org.openoffice.Office.Jobs/Jobs/org.openoffice.Office.Jobs:Job['UpdateCheck']/Arguments", "AutoCheckEnabled"),
+    ("/org.openoffice.Office.Jobs/Jobs/org.openoffice.Office.Jobs:Job['UpdateCheck']/Arguments", "AutoDownloadEnabled"),
+    ("/org.openoffice.Office.Update/Update", "Enabled"),
+}
+
+
+def test_new_libreoffice_profile_has_updates_off(tmp_path) -> None:
+    pdfsuite._prepare_libreoffice_profile(tmp_path / "profile")
+    settings = _profile_settings(tmp_path / "profile")
+    assert {key for key, value in settings.items() if value == "false"} == UPDATE_SETTINGS
+
+
+def test_existing_libreoffice_profile_is_corrected(tmp_path) -> None:
+    # A profile LibreOffice created with its defaults (updates on), plus another setting.
+    profile = tmp_path / "profile"
+    (profile / "user").mkdir(parents=True)
+    (profile / "user" / "registrymodifications.xcu").write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<oor:items xmlns:oor="http://openoffice.org/2001/registry">\n'
+        '<item oor:path="/org.openoffice.Office.Update/Update"><prop oor:name="Enabled" oor:op="fuse">'
+        "<value>true</value></prop></item>\n"
+        '<item oor:path="/org.openoffice.Office.Common/Misc"><prop oor:name="FirstRun" oor:op="fuse">'
+        "<value>false</value></prop></item>\n"
+        "</oor:items>\n",
+        encoding="utf-8",
+    )
+    pdfsuite._prepare_libreoffice_profile(profile)
+    pdfsuite._prepare_libreoffice_profile(profile)  # running again changes nothing
+    settings = _profile_settings(profile)
+    assert all(settings[key] == "false" for key in UPDATE_SETTINGS)
+    assert settings[("/org.openoffice.Office.Common/Misc", "FirstRun")] == "false"  # kept
+    text = (profile / "user" / "registrymodifications.xcu").read_text(encoding="utf-8")
+    assert text.count('oor:name="Enabled"') == 1
+
+
+def test_unreadable_libreoffice_settings_file_is_replaced(tmp_path) -> None:
+    profile = tmp_path / "profile"
+    (profile / "user").mkdir(parents=True)
+    (profile / "user" / "registrymodifications.xcu").write_text("garbage", encoding="utf-8")
+    pdfsuite._prepare_libreoffice_profile(profile)
+    assert {k for k, v in _profile_settings(profile).items() if v == "false"} == UPDATE_SETTINGS
+
+
+def test_profile_prepared_before_libreoffice_starts(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "appdata"))
+    profile = tmp_path / "appdata" / "JAP-T" / "libreoffice-profile"
+    seen: list = []
+    import subprocess
+
+    def fake_run(cmd, **kwargs):
+        seen.append(_profile_settings(profile))
+        out_dir = Path(cmd[cmd.index("--outdir") + 1])
+        (out_dir / (Path(cmd[-1]).stem + ".pdf")).write_bytes(b"%PDF-1.4")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(pdfsuite, "_find_soffice", lambda: "soffice")
+    monkeypatch.setattr(pdfsuite.subprocess, "run", fake_run)
+    assert pdfsuite._convert_with_libreoffice(tmp_path / "a.docx", tmp_path)
+    assert all(seen[0][key] == "false" for key in UPDATE_SETTINGS)
