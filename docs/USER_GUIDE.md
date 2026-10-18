@@ -1,8 +1,8 @@
 # JAP-T User Guide
 
-JAP-T (Just Another PDF Tool) is a free toolkit for everyday PDF jobs: combining, splitting, shrinking, password-protecting, making scans searchable, adding watermarks and more. It runs entirely on your own Windows computer. **Your files are never uploaded anywhere.**
+JAP-T (Just Another PDF Tool) is a free program for common PDF jobs, such as joining and splitting files, making them smaller, adding passwords, making scans searchable and adding watermarks. It runs on your own Windows computer and does not upload your files anywhere.
 
-You don't need any programming experience. If you can open a folder and double-click a file, you can use JAP-T.
+No programming knowledge is needed. You start JAP-T by double-clicking a file, pick a job from a numbered list and answer a few questions.
 
 ## Contents
 
@@ -22,13 +22,13 @@ You don't need any programming experience. If you can open a folder and double-c
 
 ## 1. Quick start
 
-1. Install **Python 3.14** (free). See [What you need](#2-what-you-need) for exactly which file to download.
-2. Download JAP-T, extract it, and **double-click `setupEnv.bat`**. This is needed once; details in [First-time setup](#3-first-time-setup).
-3. From then on, **double-click `start.bat`** to open JAP-T, type the number of the job you want, and answer the questions.
+1. Install Python 3.14, which is free. [What you need](#2-what-you-need) says which file to download.
+2. Download JAP-T, extract it and double-click `setupEnv.bat`. You only do this once. [First-time setup](#3-first-time-setup) has the details.
+3. After that, double-click `start.bat` whenever you want to use JAP-T.
 
-### Your first job: make a PDF smaller
+### Example: making a PDF smaller
 
-Here is what a complete job looks like. You type the parts after the colons; everything else is printed by JAP-T.
+This is a complete job. You type the parts after each colon, and JAP-T prints the rest.
 
 ```
 Choose [default: 0]: 6
@@ -40,10 +40,10 @@ Done.
 Press Enter to return to the menu...
 ```
 
-1. At `Choose`, type `6` (Compress PDF) and press **Enter**.
-2. At `Input PDF`, paste the location of your PDF (see [the easy way to type a file location](#typing-file-locations)) and press **Enter**.
-3. At `Output PDF`, type a location and name for the smaller copy and press **Enter**.
-4. JAP-T says `Done.` Your original `report.pdf` is unchanged, and `report_small.pdf` is the new, smaller file.
+1. At `Choose`, type `6` (Compress PDF) and press Enter.
+2. At `Input PDF`, paste the location of your PDF and press Enter. [Typing file locations](#typing-file-locations) explains how to copy it.
+3. At `Output PDF`, type a location and name for the smaller copy and press Enter.
+4. JAP-T prints `Done.` The original `report.pdf` is unchanged, and `report_small.pdf` is the new, smaller copy.
 
 ---
 
@@ -51,70 +51,73 @@ Press Enter to return to the menu...
 
 ### Required
 
-- **Windows 10 or 11.**
-- **Python 3.14**, the free program JAP-T runs on. (Python 3.11, 3.12 and 3.13 also work.)
-  1. Go to [python.org/downloads/windows](https://www.python.org/downloads/windows/).
-  2. Under **Stable Releases**, find the newest **Python 3.14** (for example "Python 3.14.6") and click **Download Windows installer (64-bit)** below it.
-     Don't use the big yellow button on python.org's home page: it gives the very newest Python, which JAP-T may not support yet.
-  3. Open the downloaded file and click **Install Now**. The default options are fine.
-  4. When it says "Setup was successful", click **Close**.
+You need Windows 10 or 11 and Python 3.14. Python is the free program JAP-T runs on. Python 3.11, 3.12 and 3.13 also work.
 
-  Already have a different Python? Keep it. Just install 3.14 as well: JAP-T finds and uses 3.14 by itself.
+To install Python:
 
-### Optional: only for some features
+1. Go to [python.org/downloads/windows](https://www.python.org/downloads/windows/).
+2. Under "Stable Releases", find the newest Python 3.14 (for example "Python 3.14.6") and click "Download Windows installer (64-bit)" underneath it.
+3. Open the downloaded file and click "Install Now". The default options are fine.
+4. When the installer says "Setup was successful", click "Close".
 
-Most features work without anything else. These free programs add the rest. You can install them now or later.
+Avoid the large yellow download button on python.org's home page. It always offers the newest Python, and JAP-T may not support that version yet.
 
-| Program | What it adds | Where to get it |
+If you already have another version of Python, you can keep it. Install 3.14 next to it, and setup will choose 3.14.
+
+### Optional
+
+Most features work without anything else. A few need one of these free programs, which you can install now or later.
+
+| Program | Needed for | Where to get it |
 |---|---|---|
-| **Tesseract OCR** | Making scans searchable (options 2 and 20), and PDF/A (option 27) | [github.com/UB-Mannheim/tesseract/wiki](https://github.com/UB-Mannheim/tesseract/wiki): download the Windows installer |
-| **Ghostscript** | Needed with Tesseract for OCR and PDF/A. Also makes Compress (option 6) much more effective | [ghostscript.com/releases](https://ghostscript.com/releases/gsdnld.html): choose the Windows 64-bit version |
-| **Microsoft Word** *or* **LibreOffice** | Turning Word documents into PDFs (option 22) | You may already have Word. LibreOffice is free: [libreoffice.org](https://www.libreoffice.org/download/) |
+| Tesseract OCR | Making scans searchable (options 2 and 20) and PDF/A (option 27) | [github.com/UB-Mannheim/tesseract/wiki](https://github.com/UB-Mannheim/tesseract/wiki). Download the Windows installer. |
+| Ghostscript | OCR and PDF/A, together with Tesseract. It also makes Compress (option 6) much more effective. | [ghostscript.com/releases](https://ghostscript.com/releases/gsdnld.html). Choose the Windows 64-bit version. |
+| Microsoft Word or LibreOffice | Turning Word documents into PDFs (option 22) | You may already have Word. LibreOffice is free from [libreoffice.org](https://www.libreoffice.org/download/). |
 
-Install them with their normal installer and default options. You don't need to change any Windows settings: JAP-T finds them by itself. To check what JAP-T can see, use menu option **23) Check setup**.
+Install them with their normal installers and default options. JAP-T finds them without any changes to Windows settings. Menu option 23 (Check setup) shows which ones it has found.
 
-> **Tip:** Tesseract reads English by default. For other languages (for example Japanese or German), tick them under **Additional language data** while installing Tesseract.
+Tesseract only reads English unless you add more languages. To read other languages, such as Japanese or German, tick them under "Additional language data" while installing Tesseract.
 
 ---
 
 ## 3. First-time setup
 
-You only do this once.
+You only need to do this once.
 
-1. **Download JAP-T.** On the JAP-T GitHub page, click the green **Code** button, then **Download ZIP**.
-2. **Extract it.** In your Downloads folder, right-click the ZIP file and choose **Extract All…**, then pick a place to keep it, for example `C:\Tools`. You'll get a folder such as `C:\Tools\JustAnotherPdfTool-JAPT-main`.
-   Don't run JAP-T from inside the ZIP without extracting it first; it won't work there.
-3. **Open the extracted folder and double-click `setupEnv.bat`.**
-   If Windows shows **"Windows protected your PC"**, click **More info**, then **Run anyway**. Windows shows this for any file downloaded from the internet.
-4. A black window opens and installs everything JAP-T needs. **The first time this takes a few minutes**, and needs an internet connection.
-5. When it finishes, it shows a short **setup check** (see below), then the JAP-T menu appears. Setup is done. Type `0` and press **Enter** to close it, or go straight to your first job.
+1. On the JAP-T GitHub page, click the green "Code" button, then "Download ZIP".
+2. In your Downloads folder, right-click the ZIP file and choose "Extract All…". Pick a place to keep JAP-T, for example `C:\Tools`. This creates a folder such as `C:\Tools\JustAnotherPdfTool-JAPT-main`.
+   JAP-T does not work from inside the ZIP file, so make sure you extract it first.
+3. Open the extracted folder and double-click `setupEnv.bat`.
+   Windows may show a "Windows protected your PC" message, because the file came from the internet. Click "More info", then "Run anyway".
+4. A black window opens and installs what JAP-T needs. This takes a few minutes the first time and needs an internet connection.
+5. When it finishes, it prints a short setup check (described below) and then opens the JAP-T menu. Type `0` and press Enter to close it, or carry on with your first job.
 
 ### The setup check
 
-The setup check tells you which features are ready. It looks like this:
+The setup check lists which features are ready. It looks something like this:
 
 ```
 JAP-T setup check
-[ OK ] Python 3.13.1
+[ OK ] Python 3.14.6
 [ OK ] Python packages
 [WARN] Tesseract OCR not found. OCR (options 2 and 20) and PDF/A (option 27) will not work. Get it from ...
 [ OK ] Ghostscript: C:\Program Files\gs\gs10.06.0\bin\gswin64c.exe
 [ OK ] DOCX -> PDF: Microsoft Word
 ```
 
-- `OK`: ready.
-- `WARN`: one feature won't work until you install the program it names. **Everything else still works.**
-- `FAIL`: setup didn't finish. Run `setupEnv.bat` again.
+- `OK` means ready.
+- `WARN` means one feature won't work until you install the program it names. The rest of JAP-T works normally.
+- `FAIL` means setup did not finish. Run `setupEnv.bat` again.
 
-You can run this check at any time with menu option **23) Check setup**, for example after installing Tesseract.
+You can run the same check later with menu option 23, for example after installing Tesseract.
 
-If setup stops with **`Setup did not finish.`**, read the message just above it (for example, no internet connection), fix that, and double-click `setupEnv.bat` again. The window stays open until you press a key, so you have time to read it.
+If setup stops with `Setup did not finish.`, the line just above it says why, for example that there is no internet connection. Fix that and run `setupEnv.bat` again. The window stays open until you press a key.
 
 ---
 
 ## 4. Using the menu
 
-**Double-click `start.bat`** whenever you want to use JAP-T. It takes a second or two to open, then shows this list:
+Double-click `start.bat` to open JAP-T. After a second or two it shows this list:
 
 ```
 PDFSuite Menu
@@ -149,31 +152,31 @@ PDFSuite Menu
 Choose [default: 0]:
 ```
 
-Type the number of the job you want and press **Enter**. JAP-T then asks its questions one at a time.
+Type the number of a job and press Enter. JAP-T then asks its questions one at a time.
 
-When the job is finished, JAP-T shows **`Done.`** or **`Failed. See the messages above.`** Press **Enter** to return to the menu for your next job. When you're finished, choose **`0`** and press any key to close the window.
+At the end of each job it prints `Done.` or `Failed. See the messages above.` Press Enter to go back to the menu. To close JAP-T, choose `0` and then press any key.
 
 ### Typing file locations
 
-Most questions ask for the location of a file, for example `C:\Users\You\Documents\report.pdf`. You don't have to type it by hand:
+Most questions ask where a file is, for example `C:\Users\You\Documents\report.pdf`. Instead of typing this yourself, you can copy it:
 
-1. In File Explorer, find the file.
-2. Hold **Shift**, right-click the file, and choose **Copy as path**.
-3. Click in the JAP-T window and press **Ctrl + V** to paste, then **Enter**.
+1. Find the file in File Explorer.
+2. Hold Shift, right-click the file and choose "Copy as path".
+3. Click in the JAP-T window, press Ctrl+V to paste, then press Enter.
 
-"Copy as path" puts quote marks (`"`) around the location. That's fine: leave them in.
+"Copy as path" adds quote marks (`"`) around the location. You can leave them in.
 
-When a question asks for **several files separated by commas** (such as merging), paste each one and separate them with commas. Keep the quote marks: they keep a file name that contains a comma, such as `"Invoice, March.pdf"`, in one piece.
+Some questions, such as the one for merging, ask for several files separated by commas. Paste each file and put a comma between them. Keep the quote marks here as well. They make sure a file name that contains a comma, such as `"Invoice, March.pdf"`, is read as one file.
 
-### Answering the other questions
+### Other questions
 
-- **Output files:** type a location and name for the new file, for example `C:\Users\You\Documents\report_small.pdf`. If the folder doesn't exist yet, it's created for you.
-- **Existing files:** if a file with that name already exists, JAP-T asks `Overwrite? (y/n)`. Type `y` to replace it, or press **Enter** to choose another name.
-- **`[default: …]`:** if a question shows a default, press **Enter** to accept it.
-- **Yes/no questions:** type `y` or `n`.
-- **Changed your mind?** Press **Ctrl + C**. This cancels the current job and takes you back to the menu. Pressing **Ctrl + C** at the menu itself closes JAP-T.
+- Output files: type a location and name for the new file, for example `C:\Users\You\Documents\report_small.pdf`. If the folder doesn't exist yet, JAP-T creates it.
+- If a file with that name already exists, JAP-T asks `Overwrite? (y/n)`. Type `y` to replace it, or press Enter to choose a different name.
+- When a question shows `[default: …]`, pressing Enter accepts the value shown.
+- For yes/no questions, type `y` or `n`.
+- To cancel a job, press Ctrl+C. JAP-T stops the job and returns to the menu. Pressing Ctrl+C at the menu closes JAP-T.
 
-> **Your originals are safe.** In the menu, JAP-T always writes the result to a new file you name. It won't let you give the output the same name as the input.
+The menu never changes your original file. It always saves the result as a new file, and it will not accept the original file's name as the output name.
 
 ---
 
@@ -181,31 +184,31 @@ When a question asks for **several files separated by commas** (such as merging)
 
 | I want to… | Option |
 |---|---|
-| Make a PDF smaller (for email, for example) | **6** Compress PDF |
-| Combine several PDFs into one | **3** Merge PDFs |
-| Turn photos or scans (JPG, PNG…) into one PDF | **5** Images → PDF |
-| Make a scanned PDF searchable, so I can copy its text | **2** OCR PDF |
-| Get some pages out as a separate PDF | **4** Split PDF (mode `range`) |
-| Remove pages | **11** Delete pages |
-| Turn pages that are sideways or upside down | **10** Rotate pages |
-| Change the order of pages | **12** Reorder pages |
-| Add a blank page, or pages from another PDF | **24** Insert pages |
-| Put a password on a PDF | **8** Encrypt PDF |
-| Remove a password I know | **9** Decrypt PDF |
-| Add page numbers | **13** Add header/footer (use `Page {page} of {pages}`) |
-| Stamp "DRAFT" or "CONFIDENTIAL" across pages | **14** Watermark |
-| Black out names or account numbers for good | **26** Redact text |
-| Edit a PDF in Word | **1** PDF → DOCX |
-| Turn a Word document into a PDF | **22** DOCX → PDF |
-| Copy all the text out of a PDF | **7** Extract text |
-| Save pages as pictures | **16** PDF → images |
-| Save the pictures inside a PDF | **15** Extract images |
-| Do the same job to a whole folder of PDFs | **20** Batch folder |
-| Store a PDF for the long term (archives, courts, government) | **27** Save as PDF/A |
-| See how many pages a PDF has | **19** PDF info |
-| See or change the title and author stored in a PDF | **17** / **18** Metadata |
-| Add bookmarks (the clickable contents in the side panel) | **25** Bookmarks |
-| Check which features are ready | **23** Check setup |
+| Make a PDF smaller, for example to send by email | 6 Compress PDF |
+| Combine several PDFs into one | 3 Merge PDFs |
+| Turn photos or scans (JPG, PNG…) into one PDF | 5 Images → PDF |
+| Make a scanned PDF searchable, so I can copy its text | 2 OCR PDF |
+| Save some of the pages as a separate PDF | 4 Split PDF (mode `range`) |
+| Remove pages | 11 Delete pages |
+| Turn pages that are sideways or upside down | 10 Rotate pages |
+| Change the order of pages | 12 Reorder pages |
+| Add a blank page, or pages from another PDF | 24 Insert pages |
+| Put a password on a PDF | 8 Encrypt PDF |
+| Remove a password I know | 9 Decrypt PDF |
+| Add page numbers | 13 Add header/footer (use `Page {page} of {pages}`) |
+| Print "DRAFT" or "CONFIDENTIAL" across the pages | 14 Watermark |
+| Permanently remove names or account numbers | 26 Redact text |
+| Edit a PDF in Word | 1 PDF → DOCX |
+| Turn a Word document into a PDF | 22 DOCX → PDF |
+| Copy all the text out of a PDF | 7 Extract text |
+| Save the pages as pictures | 16 PDF → images |
+| Save the pictures that are inside a PDF | 15 Extract images |
+| Do the same job to a whole folder of PDFs | 20 Batch folder |
+| Keep a PDF in an archive format (often required by courts or government offices) | 27 Save as PDF/A |
+| Find out how many pages a PDF has | 19 PDF info |
+| See or change the title and author stored in a PDF | 17 / 18 Metadata |
+| Add bookmarks (the list of links in a PDF reader's side panel) | 25 Bookmarks |
+| Check which features are ready | 23 Check setup |
 
 ---
 
@@ -213,137 +216,138 @@ When a question asks for **several files separated by commas** (such as merging)
 
 ### Converting
 
-| # | Option | What it does | You'll be asked for |
+| # | Option | What it does | Questions |
 |---|---|---|---|
-| 1 | **PDF → DOCX** | Turns a PDF into an editable Word document. Works best on PDFs that contain real text, not scans. | Input PDF, output `.docx` |
-| 22 | **DOCX → PDF** | Turns a Word document into a PDF. Needs Microsoft Word or LibreOffice. | Input `.docx`, output PDF |
-| 5 | **Images → PDF** | Combines pictures into one PDF, one picture per page. Works with JPG, PNG, TIFF, BMP, GIF and WebP. JPG, PNG and TIFF keep their full quality, and photos are turned the right way up automatically. | Image folder, output name, optional list of file names |
-| 16 | **PDF → images** | Saves every page as a picture (`page_0001.png`, `page_0002.png`, …). | Input PDF, output folder, DPI, format (`png` or `jpg`) |
-| 7 | **Extract text** | Saves all the text in a PDF to a `.txt` file. Press **Enter** at the output question to save it next to the PDF with the same name. | Input PDF, output `.txt` |
-| 15 | **Extract images** | Saves every picture inside the PDF into a folder. | Input PDF, output folder |
+| 1 | PDF → DOCX | Turns a PDF into a Word document you can edit. It works best on PDFs that contain real text rather than scans. | Input PDF, output `.docx` |
+| 22 | DOCX → PDF | Turns a Word document into a PDF. Needs Microsoft Word or LibreOffice. | Input `.docx`, output PDF |
+| 5 | Images → PDF | Puts pictures into one PDF, one picture per page. Works with JPG, PNG, TIFF, BMP, GIF and WebP. JPG, PNG and TIFF pictures are copied in without any loss of quality, and photos are turned the right way up. | Image folder, output name, optional list of file names |
+| 16 | PDF → images | Saves each page as a picture (`page_0001.png`, `page_0002.png` and so on). | Input PDF, output folder, DPI, format (`png` or `jpg`) |
+| 7 | Extract text | Saves the text of a PDF in a `.txt` file. Press Enter at the output question to save it next to the PDF under the same name. | Input PDF, output `.txt` |
+| 15 | Extract images | Saves the pictures that are inside a PDF into a folder. | Input PDF, output folder |
 
-**About option 5:**
-- Leave the file list blank to use every picture in the folder, in name order (`img2` comes before `img10`).
-- To choose the order yourself, type the names separated by commas: `cover.jpg, page1.png, page2.jpg`.
-- If you type just a name for the output (like the default `merged_output.pdf`), it's saved in the image folder.
-- If any listed file is missing or can't be read, nothing is created, and JAP-T tells you which file.
-- A multi-page TIFF becomes several pages. Transparent areas (in PNG, GIF or WebP) become white.
+Notes on option 5:
+- If you leave the list of file names empty, JAP-T uses every picture in the folder in name order, with `img2` before `img10`.
+- To choose the order yourself, type the names with commas between them, for example `cover.jpg, page1.png, page2.jpg`.
+- If you give only a name for the output, such as the default `merged_output.pdf`, the PDF is saved in the image folder.
+- If a listed file is missing or can't be read, JAP-T names it and doesn't create the PDF.
+- A TIFF file with several pages becomes several PDF pages. Transparent parts of PNG, GIF or WebP pictures become white.
 
-**About option 22:** if you have Microsoft Word, JAP-T uses it. Otherwise it uses LibreOffice. For LibreOffice, JAP-T keeps its own separate LibreOffice settings, so it doesn't disturb a LibreOffice window you have open, and it never checks for or installs LibreOffice updates. The very first conversion can take a little longer while those settings are created.
+Notes on option 22: JAP-T uses Microsoft Word if it is installed, and LibreOffice otherwise. With LibreOffice, JAP-T uses its own separate LibreOffice settings. This means it won't interfere with a LibreOffice window you already have open, and it never checks for or installs LibreOffice updates. The first conversion takes a little longer while those settings are created.
 
-**About DPI (options 16 and 21):** DPI controls picture sharpness. `150` is good for screens; `300` is good for printing but makes bigger files.
+Notes on DPI (options 16 and 21): DPI sets how sharp the pictures are. 150 is enough for viewing on screen. 300 is better for printing but gives larger files.
 
 ### Organising pages
 
-| # | Option | What it does | You'll be asked for |
+| # | Option | What it does | Questions |
 |---|---|---|---|
-| 3 | **Merge PDFs** | Joins several PDFs into one, in the order you list them. Bookmarks and form fields are kept. | Input PDFs separated by commas, then the output PDF |
-| 4 | **Split PDF** | Breaks a PDF into smaller files (see the modes below). | Input PDF, mode, output folder, file name prefix, and page range or chunk size |
-| 10 | **Rotate pages** | Turns pages clockwise by 90, 180 or 270 degrees. Leave the pages blank to rotate all of them. | Input, output, angle, pages (optional) |
-| 11 | **Delete pages** | Removes the pages you choose. You can't delete every page. | Input, output, pages to delete |
-| 12 | **Reorder pages** | Puts pages in a new order. Type the old page numbers in the new order: `3,1,2` makes page 3 first. | Input, output, new order |
-| 24 | **Insert pages** | Adds blank pages, or pages copied from another PDF, where you choose. Bookmarks keep pointing at the right pages. | Input, output, position, then either the other PDF and its pages, or how many blank pages |
-| 25 | **Bookmarks** | Shows or adds bookmarks: the clickable contents list in the side panel of PDF readers. | See below |
+| 3 | Merge PDFs | Joins several PDFs into one, in the order you list them. Bookmarks and form fields are kept. | Input PDFs separated by commas, then the output PDF |
+| 4 | Split PDF | Splits a PDF into smaller files. The modes are described below. | Input PDF, mode, output folder, file name prefix, and page range or chunk size |
+| 10 | Rotate pages | Turns pages clockwise by 90, 180 or 270 degrees. Leave the page list empty to turn every page. | Input, output, angle, pages (optional) |
+| 11 | Delete pages | Removes the pages you choose. It won't delete every page. | Input, output, pages to delete |
+| 12 | Reorder pages | Puts the pages in a new order. Type the current page numbers in the order you want: `3,1,2` puts page 3 first. | Input, output, new order |
+| 24 | Insert pages | Adds blank pages, or pages copied from another PDF, at the position you choose. Bookmarks still point to the right pages afterwards. | Input, output, position, then either the other PDF and its pages or the number of blank pages |
+| 25 | Bookmarks | Shows or adds bookmarks, the list of links in a PDF reader's side panel. | See below |
 
-**Split modes:**
+Split modes:
 
-- `single`: every page becomes its own file (`page_0001.pdf`, `page_0002.pdf`, …).
-- `range`: copies the pages you choose into one file, `split_pages.pdf`. If your range runs past the last page, it stops at the last page.
-- `chunk`: cuts the PDF into equal pieces. Chunk size `10` gives pages 1–10, 11–20, and so on (`chunk_0001.pdf`, …).
+- `single` saves every page as its own file (`page_0001.pdf`, `page_0002.pdf` and so on).
+- `range` copies the pages you choose into one file called `split_pages.pdf`. If the range goes past the last page, it stops at the last page.
+- `chunk` cuts the PDF into equal parts. A chunk size of 10 gives pages 1–10, 11–20 and so on (`chunk_0001.pdf`, …).
 
-JAP-T asks for both a page range and a chunk size every time. It only uses the one that matches your mode, so just press **Enter** for the other.
+JAP-T asks for both a page range and a chunk size every time, but only uses the one that belongs to the mode you chose. Press Enter for the other one.
 
-**Insert pages:** the position is the page to insert *after*. `0` puts the new pages before page 1; `3` puts them after page 3. Blank pages get the same size as the page before them. When taking pages from another PDF, leave the page list blank to insert all of them.
+Insert pages: the position is the page that the new pages go after. `0` puts them before page 1, and `3` puts them after page 3. Blank pages are the same size as the page before them. When copying pages from another PDF, leave the page list empty to copy all of them.
 
-**Bookmarks** (option 25) first asks what you want to do:
+Bookmarks (option 25) first asks what you want to do:
 
-- `show` lists the bookmarks, indented to show which ones sit under others.
-- `add` adds one bookmark: a title and the page it opens. It's placed in page order.
+- `show` lists the bookmarks. Bookmarks that belong under another one are indented.
+- `add` adds one bookmark with a title and the page it opens. It is placed in page order among the others.
 
 ### Making files smaller and searchable
 
 | # | Option | What it does |
 |---|---|---|
-| 6 | **Compress PDF** | Makes the file smaller, mostly by shrinking pictures. If nothing makes it smaller, you get an unchanged copy rather than a bigger file. Works much better with Ghostscript installed. |
-| 2 | **OCR PDF** | Reads the text in a scanned PDF so you can search, select and copy it. Needs Tesseract and Ghostscript. |
-| 21 | **Convert selected pages to non-OCR** | The opposite of OCR: turns chosen pages back into plain pictures with no selectable text. Other pages are left alone. |
-| 27 | **Save as PDF/A** | Converts a PDF to PDF/A, the format archives, courts and governments ask for when files must stay readable for decades. Needs Tesseract and Ghostscript. Answer `y` to also make scanned pages searchable. The result can be larger than the original, because PDF/A stores the fonts inside the file. |
+| 6 | Compress PDF | Makes the file smaller, mostly by shrinking the pictures in it. If it can't make the file any smaller, you get an unchanged copy, never a bigger file. Works much better when Ghostscript is installed. |
+| 2 | OCR PDF | Reads the words in a scanned PDF so you can search, select and copy them. Needs Tesseract and Ghostscript. |
+| 21 | Convert selected pages to non-OCR | Does the opposite of OCR for the pages you choose, turning them back into plain pictures without selectable text. The other pages stay as they are. |
+| 27 | Save as PDF/A | Converts a PDF to PDF/A, a format for keeping documents readable for many years. Archives, courts and government offices often ask for it. Needs Tesseract and Ghostscript. Answer `y` to the extra question to make scanned pages searchable at the same time. The result can be larger than the original, because PDF/A includes all fonts in the file. |
 
-**OCR questions explained** (press **Enter** to accept the default for any of them):
+The OCR questions are explained below. You can press Enter to accept the default for any of them.
 
-- **Language:** the language of the document. `eng` is English. For mixed documents, join languages with `+`, for example `eng+jpn`. Each language must be installed in Tesseract (see the [tip](#optional-only-for-some-features)).
-- **Deskew:** straightens pages that were scanned at a slight angle.
-- **Rotate pages:** fixes pages that were scanned sideways or upside down.
-- **Remove background:** cleans up grey or speckled backgrounds.
-- **Optimize (0–3):** how hard to shrink the result. `1` is a safe choice.
-- **Force OCR:** redo OCR even if the PDF already has text. Use this if you see "Prior OCR/text detected".
-- **Skip existing text:** only OCR the pages that have no text yet.
+- Language: the language of the document. `eng` is English. For a document in more than one language, join them with `+`, for example `eng+jpn`. Each language has to be installed in Tesseract (see [Optional](#optional)).
+- Deskew: straightens pages that were scanned slightly crooked.
+- Rotate pages: turns pages that were scanned sideways or upside down.
+- Remove background: cleans up grey or speckled backgrounds.
+- Optimize (0–3): how hard JAP-T tries to make the result smaller. 1 is a safe choice.
+- Force OCR: reads the pages again even if the PDF already contains text. Use this if you get the message "Prior OCR/text detected".
+- Skip existing text: only reads the pages that don't contain text yet.
 
 ### Passwords
 
 | # | Option | What it does |
 |---|---|---|
-| 8 | **Encrypt PDF** | Adds a password. Anyone opening the file must type it. Uses strong AES-256 encryption. |
-| 9 | **Decrypt PDF** | Removes the password from a PDF you know the password for. |
+| 8 | Encrypt PDF | Adds a password. The PDF can't be opened without it. Uses AES-256 encryption. |
+| 9 | Decrypt PDF | Removes the password from a PDF, if you know the password. |
 
-When JAP-T asks for the password, **nothing appears on screen as you type**. That's normal: it stops people nearby from seeing it. Type it and press **Enter**. When adding a password (option 8), you type it twice, so a typo can't lock you out.
+Nothing appears on screen while you type the password. This is deliberate, so that nobody can read it over your shoulder. Type it and press Enter. When you add a password with option 8, you type it twice to rule out typing mistakes.
 
-> **Warning:** if you forget the password of an encrypted PDF, there is no way to get it back. Keep the unencrypted original somewhere safe.
+A forgotten password can't be recovered, so keep an unprotected copy of the PDF somewhere safe.
 
 ### Adding text to pages
 
 | # | Option | What it does |
 |---|---|---|
-| 13 | **Add header/footer** | Writes text at the top and/or bottom of every page. |
-| 14 | **Watermark** | Writes large, faint text across the middle of every page, such as `DRAFT` or `CONFIDENTIAL`. |
+| 13 | Add header/footer | Adds text at the top, the bottom or both, on every page. |
+| 14 | Watermark | Adds large, faint text across the middle of every page, such as `DRAFT` or `CONFIDENTIAL`. |
 
-**Header/footer:** use `{page}` for the page number and `{pages}` for the total. For example, the footer `Page {page} of {pages}` prints "Page 3 of 10" on page 3. *Margin* is the distance from the edge of the page in points (72 points = 1 inch).
+Header and footer: `{page}` is replaced by the page number and `{pages}` by the total number of pages. For example, the footer `Page {page} of {pages}` prints "Page 3 of 10" on page 3. The margin is the distance from the edge of the page, measured in points (72 points = 1 inch).
 
-**Watermark:** *Rotate* is the angle in degrees (`45` is diagonal; decimals such as `22.5` work too). *Opacity* goes from `0` (invisible) to `1` (solid); `0.15` gives a light watermark.
+Watermark: "Rotate" is the angle in degrees. 45 is diagonal, and decimals such as 22.5 are allowed. "Opacity" goes from 0 (invisible) to 1 (fully solid grey), and 0.15 gives a light watermark.
 
-Both options work with non-English text such as Japanese, Chinese, Korean, Russian or Hindi. JAP-T picks a suitable font automatically.
+Both options also work with text in other scripts, such as Japanese, Chinese, Korean, Russian or Hindi. JAP-T chooses a suitable font.
 
 ### Removing private information
 
 | # | Option | What it does |
 |---|---|---|
-| 26 | **Redact text** | Permanently removes words or phrases (names, account numbers, addresses) and puts black boxes where they were. |
+| 26 | Redact text | Removes words or phrases, such as names, account numbers or addresses, and puts black boxes in their place. |
 
-Type the text to remove. To remove several things, separate them with `|`, for example `John Smith | 12345678`. Upper and lower case don't matter.
+Type the text you want removed. To remove several things at once, separate them with `|`, for example `John Smith | 12345678`. It doesn't matter whether you use capital letters.
 
-Unlike drawing a black box over text, redaction **deletes the text itself**, so it can't be copied, searched or recovered from the new file. Before you share the result, know the limits:
+Drawing a black box over text only hides it, and the text can often still be copied out. Redaction deletes the text itself, so it can't be copied, searched or recovered from the new file. There are some limits to be aware of:
 
-- **Scanned pages** are pictures, so their words can't be found. Run OCR (option 2) first, then redact the OCR result. JAP-T tells you which pages had no text.
-- **Hidden details:** the title, author and bookmarks aren't part of the pages, so redaction doesn't change them. JAP-T warns you if your text appears there; fix them with options 18 and 25.
-- If none of the text is found, no file is created.
-- Always open the result and check it before sharing it.
+- Scanned pages are pictures, so the words on them can't be found. Run OCR (option 2) first, then redact the result. JAP-T lists the pages that contain no text.
+- The title, author and bookmarks are stored outside the pages, so redaction doesn't change them. JAP-T warns you if your text appears there. You can change them with options 18 and 25.
+- If none of the text is found, JAP-T doesn't create a file.
+
+Open the redacted PDF and check it before you send it to anyone.
 
 ### Information and metadata
 
 | # | Option | What it does |
 |---|---|---|
-| 19 | **PDF info** | Shows how many pages a PDF has and whether it's password-protected. |
-| 17 | **Show metadata** | Shows the hidden document details: title, author, the program that created it, dates. |
-| 18 | **Set metadata** | Changes those details. Details you don't mention are kept. |
-| 23 | **Check setup** | Shows which optional programs are installed and which features need something extra. |
+| 19 | PDF info | Shows how many pages a PDF has and whether it has a password. |
+| 17 | Show metadata | Shows the details stored inside the PDF, such as title, author, the program that created it and dates. |
+| 18 | Set metadata | Changes those details. Anything you don't mention stays as it is. |
+| 23 | Check setup | Shows which optional programs JAP-T has found and which features need something installed. |
 
-**Set metadata** expects the details in this exact format (called JSON):
+Set metadata expects the details in a fixed format called JSON, like this:
 
 ```
 {"/Title": "Annual Report 2026", "/Author": "Jane Doe"}
 ```
 
-Common keys are `/Title`, `/Author`, `/Subject` and `/Keywords`. Keep the slashes, the quote marks and the curly braces exactly as shown.
+The usual keys are `/Title`, `/Author`, `/Subject` and `/Keywords`. Type the slashes, quote marks and curly brackets exactly as shown.
 
 ### Batch processing
 
 | # | Option | What it does |
 |---|---|---|
-| 20 | **Batch folder** | Runs one job on every PDF in a folder. |
+| 20 | Batch folder | Runs the same job on every PDF in a folder. |
 
-You choose one of these operations. Each creates a new file per PDF:
+These are the jobs you can choose. Each one creates a new file for every PDF:
 
-| Operation | Creates |
+| Job | Creates |
 |---|---|
 | `ocr` | `name_ocr.pdf` |
 | `compress` | `name_compressed.pdf` |
@@ -352,18 +356,18 @@ You choose one of these operations. Each creates a new file per PDF:
 | `rotate` | `name_rotated.pdf` |
 | `header-footer` | `name_header_footer.pdf` |
 
-After you choose, JAP-T asks the same questions as the single-file option (for example the watermark text, or the rotation angle) and uses your answers for every file.
+After you choose a job, JAP-T asks the same questions as the single-file option, for example the watermark text or the rotation angle, and uses your answers for every file.
 
-- **Glob** chooses which files to include. Press **Enter** for `*.pdf` (all PDFs); `invoice*.pdf` means only PDFs whose names start with "invoice".
-- **Output folder:** leave it blank to save the results next to the originals.
-- **Running the same batch again** in the same folder skips the first run's results (it won't create `name_rotated_rotated.pdf`), but it replaces them with new ones.
-- If some files fail, JAP-T names them and shows `Failed.`, even though the others were done.
+- "Glob" selects which files to include. Press Enter to accept `*.pdf`, which means all PDFs. `invoice*.pdf` would select only the PDFs whose names start with "invoice".
+- Leave the output folder empty to save the results next to the original files.
+- If you run the same job again in the same folder, the files created last time are skipped, so you won't get names like `name_rotated_rotated.pdf`. The earlier results are replaced with new ones.
+- If some files fail, JAP-T lists them and prints `Failed.` The other files are still processed.
 
 ---
 
 ## 7. Page numbers and ranges
 
-Pages are counted from **1**. Wherever JAP-T asks for pages, you can mix single pages and ranges, separated by commas:
+Pages are numbered from 1. Wherever JAP-T asks for pages, you can combine single pages and ranges, separated by commas:
 
 | You type | Pages selected |
 |---|---|
@@ -372,36 +376,46 @@ Pages are counted from **1**. Wherever JAP-T asks for pages, you can mix single 
 | `1-3,6` | pages 1, 2, 3 and 6 |
 | `2,9-12,16` | pages 2, 9, 10, 11, 12 and 16 |
 
-Spaces are fine (`1 - 3, 6`). A page counts once even if you type it twice. Not sure how many pages a PDF has? Use option **19**.
+Spaces are allowed (`1 - 3, 6`), and a page typed twice is only used once. Option 19 shows how many pages a PDF has.
 
 ---
 
 ## 8. Updating or removing JAP-T
 
-### Updating to a newer version
+### Updating JAP-T
 
-1. Download and extract the new version, as in [First-time setup](#3-first-time-setup), into a **new** folder.
+1. Download and extract the new version into a new folder, the same way as in [First-time setup](#3-first-time-setup).
 2. Double-click `setupEnv.bat` in the new folder.
-3. When it works, you can delete the old folder.
+3. Once the new version works, you can delete the old folder.
 
-Your PDFs aren't stored inside the JAP-T folder, so updating never touches them.
+Your PDFs are not stored in the JAP-T folder, so updating doesn't affect them.
 
-> If you downloaded JAP-T with Git instead of a ZIP: run `git pull` in the JAP-T folder, then double-click `setupEnv.bat`.
+If you got JAP-T with Git rather than as a ZIP file, run `git pull` in the JAP-T folder and then double-click `setupEnv.bat`.
+
+### Moving to a newer Python
+
+If you install a newer version of Python later, for example 3.14 after using 3.13, JAP-T carries on using the old version until you rebuild its setup:
+
+1. Close JAP-T.
+2. In the JAP-T folder, delete the folder called `venv`.
+3. Double-click `setupEnv.bat`. It uses the newest supported Python it can find.
+
+You can uninstall the old Python afterwards if nothing else on your computer needs it.
 
 ### Removing JAP-T
 
 1. Delete the JAP-T folder.
-2. Optional: delete JAP-T's LibreOffice settings. In File Explorer, click the address bar, type `%LOCALAPPDATA%` and press **Enter**, then delete the `JAP-T` folder there. It exists only if you've converted Word documents with LibreOffice.
+2. If you have converted Word documents with LibreOffice, JAP-T also created a settings folder. To remove it, click the address bar in File Explorer, type `%LOCALAPPDATA%`, press Enter, and delete the folder called `JAP-T`.
 
-Python, Tesseract, Ghostscript and LibreOffice are separate programs. If you no longer need them, remove them like any other program, in Windows **Settings → Apps**.
+Python, Tesseract, Ghostscript and LibreOffice are separate programs. If you don't need them any more, uninstall them from Settings → Apps like any other program.
 
 ---
 
 ## 9. Using the command line (optional)
 
-You don't need this section if the menu works for you. The command line is faster for repeated jobs and lets you use JAP-T in scripts.
+The menu is enough for most people, and you can skip this section. The command line is quicker for jobs you repeat often, and it lets you use JAP-T in scripts.
 
-Open the JAP-T folder in File Explorer, click the address bar, type `cmd` and press **Enter**. A Command Prompt opens in that folder. Then run commands like these:
+To open a Command Prompt in the JAP-T folder, open the folder in File Explorer, click the address bar, type `cmd` and press Enter. Commands look like this:
 
 ```bat
 venv\Scripts\python.exe src\pdfsuite.py merge --out combined.pdf a.pdf b.pdf c.pdf
@@ -413,17 +427,17 @@ venv\Scripts\python.exe src\pdfsuite.py batch --folder C:\Reports --op watermark
 venv\Scripts\python.exe src\pdfsuite.py batch --folder C:\Reports --op header-footer --footer "Page {page} of {pages}"
 ```
 
-- Put paths that contain spaces in quotes: `--in "C:\My Files\report.pdf"`.
-- Unlike the menu, the command line **does** let `--out` be the same file as `--in`, and overwrites it without asking.
-- For `encrypt` and `decrypt`, leave out `--password` and JAP-T asks for it without showing it. If you type `--password`, the password can end up saved in your command history.
+- Put quote marks around paths that contain spaces, for example `--in "C:\My Files\report.pdf"`.
+- Unlike the menu, the command line accepts the same file for `--in` and `--out`, and overwrites it without asking.
+- For `encrypt` and `decrypt`, leave out `--password` and JAP-T will ask for the password without showing it. A password typed after `--password` may be saved in your command history.
 
-To see every command, run:
+To list all commands:
 
 ```bat
 venv\Scripts\python.exe src\pdfsuite.py --help
 ```
 
-For the options of one command, add `--help` after it, for example `venv\Scripts\python.exe src\pdfsuite.py ocr --help`.
+To see the options for one command, put `--help` after the command name, for example `venv\Scripts\python.exe src\pdfsuite.py ocr --help`.
 
 | Command | Menu option |
 |---|---|
@@ -431,7 +445,7 @@ For the options of one command, add `--help` after it, for example `venv\Scripts
 | `ocr` | 2. OCR PDF |
 | `merge` | 3. Merge PDFs |
 | `split` | 4. Split PDF |
-| `images-to-pdf` (or the older `jpg-merge`) | 5. Images → PDF |
+| `images-to-pdf` (or the older name `jpg-merge`) | 5. Images → PDF |
 | `compress` | 6. Compress |
 | `extract-text` | 7. Extract text |
 | `encrypt` / `decrypt` | 8 / 9. Passwords |
@@ -450,11 +464,11 @@ For the options of one command, add `--help` after it, for example `venv\Scripts
 | `check` | 23. Check setup |
 | `insert-pages` | 24. Insert pages |
 | `bookmarks-show` / `bookmarks-add` | 25. Bookmarks |
-| `redact` | 26. Redact text (repeat `--text` for each phrase) |
+| `redact` | 26. Redact text (use `--text` once for each phrase) |
 | `pdfa` | 27. Save as PDF/A (add `--ocr` to make scans searchable) |
 | `menu` | Opens the menu |
 
-Add `--log-level WARNING` before the command name to see only warnings and errors, or `--log-level DEBUG` to see extra detail when something goes wrong.
+Put `--log-level WARNING` before the command name to see only warnings and errors, or `--log-level DEBUG` to see more detail when something goes wrong.
 
 ---
 
@@ -462,25 +476,25 @@ Add `--log-level WARNING` before the command name to see only warnings and error
 
 | Message or problem | What to do |
 |---|---|
-| "Windows protected your PC" | Click **More info**, then **Run anyway**. Windows shows this for files downloaded from the internet. |
-| `Python is not installed.` during setup | Install Python 3.14 (see [What you need](#2-what-you-need)), then run `setupEnv.bat` again. |
-| `Found Python 3.x, but JAP-T needs Python 3.11, 3.12, 3.13 or 3.14.` | Your Python is too new or too old. Install Python 3.14 as well (see [What you need](#2-what-you-need)); you can keep the other one. Then run `setupEnv.bat` again. |
-| `Setup did not finish.` | Read the message just above it, fix that problem (often: no internet connection), then run `setupEnv.bat` again. |
-| `JAP-T is not set up yet.` when starting | Double-click `setupEnv.bat` first. |
+| "Windows protected your PC" | Click "More info", then "Run anyway". Windows shows this for files downloaded from the internet. |
+| `Python is not installed.` during setup | Install Python 3.14 (see [What you need](#2-what-you-need)) and run `setupEnv.bat` again. |
+| `Found Python 3.x, but JAP-T needs Python 3.11, 3.12, 3.13 or 3.14.` | Your Python version is too new or too old for JAP-T. Install Python 3.14 as well (see [What you need](#2-what-you-need)). You can keep the other version. Then run `setupEnv.bat` again. |
+| `Setup did not finish.` | The message just above it says what went wrong, often a missing internet connection. Fix that and run `setupEnv.bat` again. |
+| `JAP-T is not set up yet.` when starting | Run `setupEnv.bat` first. |
 | `Missing Python package: …` | Setup didn't finish. Run `setupEnv.bat` again. |
-| `Input PDF not found` | The location is mistyped. Use **Copy as path** in File Explorer (see [Typing file locations](#typing-file-locations)). |
-| OCR fails, or mentions Tesseract or Ghostscript | Install both (see [What you need](#2-what-you-need)), then close and reopen JAP-T. Option **23) Check setup** shows whether they were found. |
-| `Prior OCR/text detected` | The PDF already has text. Answer `y` to **Force OCR**, or `y` to **Skip existing text**. |
-| PDF/A fails with `needs Tesseract and Ghostscript` | Install both (see [What you need](#2-what-you-need)). PDF/A uses them even when it doesn't OCR anything. |
-| `None of the text was found` (redact) | Check the spelling. If the page is a scan, run OCR (option 2) first, then redact the OCR result. |
-| `No conversion backend available` (DOCX → PDF) | Install Microsoft Word or LibreOffice. Option **23) Check setup** shows whether either was found. |
-| `File has not been decrypted`, or other password errors | The PDF is password-protected. Use option 9 to remove the password first, then run the job on the unlocked file. |
-| `Incorrect password` | Passwords are case-sensitive. Check Caps Lock, and remember that nothing appears on screen while you type. |
-| `page … out of bounds` | You asked for a page beyond the end of the PDF. Use option 19 to check how many pages it has. |
-| Compress saved 0% | The PDF was already as small as it gets. Installing Ghostscript helps with scanned or photo-heavy PDFs. |
-| `Failed.` after a batch | Some files failed. JAP-T lists them above `Failed.`; the other files were done. |
+| `Input PDF not found` | The location is wrong. Use "Copy as path" in File Explorer (see [Typing file locations](#typing-file-locations)). |
+| OCR fails, or the message mentions Tesseract or Ghostscript | Install both (see [What you need](#2-what-you-need)), then close and reopen JAP-T. Option 23 shows whether they were found. |
+| `Prior OCR/text detected` | The PDF already contains text. Answer `y` to "Force OCR" or to "Skip existing text". |
+| PDF/A fails with `needs Tesseract and Ghostscript` | Install both (see [What you need](#2-what-you-need)). PDF/A needs them even when no OCR is done. |
+| `None of the text was found` (redact) | Check the spelling. If the page is a scan, run OCR (option 2) first and then redact the result. |
+| `No conversion backend available` (DOCX → PDF) | Install Microsoft Word or LibreOffice. Option 23 shows whether either was found. |
+| `File has not been decrypted`, or other password errors | The PDF has a password. Remove it with option 9, then run the job on the unprotected copy. |
+| `Incorrect password` | Passwords are case-sensitive, so check Caps Lock. Remember that nothing appears on screen while you type. |
+| `page … out of bounds` | You asked for a page after the last one. Option 19 shows how many pages the PDF has. |
+| Compress saved 0% | The PDF couldn't be made any smaller. Installing Ghostscript helps with scanned PDFs and PDFs with many photos. |
+| `Failed.` after a batch | Some files failed. Their names are listed above `Failed.` The other files were processed. |
 
-Still stuck? Run the same job from the command line with `--log-level DEBUG` (see [section 9](#9-using-the-command-line-optional)), and include the output when you ask for help.
+If none of this helps, run the job from the command line with `--log-level DEBUG` (see [section 9](#9-using-the-command-line-optional)) and include the output when you ask for help.
 
 ---
 
@@ -488,13 +502,13 @@ Still stuck? Run the same job from the command line with `--log-level DEBUG` (se
 
 | Word | Meaning |
 |---|---|
-| **OCR** | "Optical character recognition": reading the words in a picture of a page (a scan), so you can search and copy them. |
-| **Scan / scanned PDF** | A PDF whose pages are pictures, for example from a scanner or phone camera. You can't select its text until it has been OCRed. |
-| **Redact** | Remove information for good, so it can't be recovered. |
-| **PDF/A** | A version of PDF designed to stay readable for decades. Archives, courts and governments often require it. |
-| **Metadata** | Hidden details stored in a file, such as its title and author. |
-| **DPI** | "Dots per inch": how sharp a picture is. Higher means sharper and larger files. |
-| **Watermark** | Faint text printed across a page, such as "DRAFT". |
-| **Encrypt / decrypt** | Add / remove a password. |
-| **Glob** | A pattern that selects files by name. `*` means "anything", so `*.pdf` means every PDF. |
-| **Command Prompt** | A window where you type commands instead of clicking. Only needed for the optional [command line](#9-using-the-command-line-optional). |
+| OCR | Short for "optical character recognition". The computer reads the words in a picture of a page so you can search and copy them. |
+| Scan, scanned PDF | A PDF whose pages are pictures, for example from a scanner or a phone camera. You can't select the text in it until it has been through OCR. |
+| Redact | To remove information so that it can't be recovered. |
+| PDF/A | A type of PDF made for keeping documents readable for many years. Archives, courts and government offices often ask for it. |
+| Metadata | Details stored inside a file, such as its title and author. |
+| DPI | Short for "dots per inch". It sets how sharp a picture is. A higher number gives sharper pictures and larger files. |
+| Watermark | Faint text printed across a page, such as "DRAFT". |
+| Encrypt, decrypt | To add or remove a password. |
+| Glob | A pattern for choosing files by name. `*` stands for any text, so `*.pdf` means every PDF. |
+| Command Prompt | A window where you type commands instead of clicking. It is only needed for the optional [command line](#9-using-the-command-line-optional). |

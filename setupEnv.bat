@@ -5,17 +5,19 @@ cd /d "%~dp0"
 REM JAP-T's packages have ready-made Windows builds for Python 3.11 to 3.14.
 set "CHECK=import sys; sys.exit(0 if (3, 11) <= sys.version_info[:2] <= (3, 14) else 1)"
 
-REM Find a supported Python: "python" when it is on PATH and supported,
-REM otherwise ask the "py" launcher (which the python.org installer adds even
-REM when "Add python.exe to PATH" is left unticked) for each supported version,
-REM newest first. This also picks 3.14 when a newer, unsupported Python is the
-REM default.
+REM Find the newest supported Python. First ask the "py" launcher (which the
+REM python.org installer adds even when "Add python.exe to PATH" is left
+REM unticked) for each supported version, newest first, so 3.14 is used even
+REM when an older or newer Python is the default. Fall back to "python" on
+REM PATH for installs the launcher doesn't know about.
 set "PY="
-python -c "%CHECK%" >nul 2>&1 && set "PY=python"
 for %%V in (3.14 3.13 3.12 3.11) do (
     if not defined PY (
         py -%%V -c "%CHECK%" >nul 2>&1 && set "PY=py -%%V"
     )
+)
+if not defined PY (
+    python -c "%CHECK%" >nul 2>&1 && set "PY=python"
 )
 if not defined PY (
     set "FOUND="

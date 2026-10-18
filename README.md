@@ -1,30 +1,31 @@
 # JAP-T: Just Another PDF Tool
 
-A free PDF toolkit for Windows. Pick a job from a simple numbered menu, answer a few questions, and you're done. Everything runs on your own computer: **your files are never uploaded anywhere.**
+A free PDF toolkit for Windows. You choose a job from a numbered menu and answer a few questions. It runs on your own computer and doesn't upload your files anywhere.
 
 ## What it can do
 
-- **Combine, split and organise:** merge PDFs, split them, delete, rotate, reorder or insert pages, add bookmarks
-- **Make files smaller:** compress PDFs, often to a fraction of their size
-- **Convert:** PDF ↔ Word, photos (JPG, PNG, …) → PDF, PDF pages → pictures, PDF → text
-- **Make scans searchable:** OCR turns scanned pages into text you can search and copy
-- **Protect and clean up:** add or remove passwords, permanently black out private text (redaction), edit the title and author
-- **Stamp pages:** page numbers, headers and footers, "DRAFT" watermarks
-- **Archive:** save as PDF/A, the long-term format archives and courts ask for
-- **Batch jobs:** run the same job on a whole folder of PDFs
+- Merge and split PDFs, and delete, rotate, reorder or insert pages
+- Compress PDFs
+- Convert between PDF and Word, turn photos (JPG, PNG and others) into a PDF, save pages as pictures, and extract the text
+- Make scanned PDFs searchable (OCR)
+- Add or remove passwords, permanently remove private text (redaction), and edit the title and author
+- Add page numbers, headers and footers, and watermarks such as "DRAFT"
+- Save as PDF/A for archiving
+- Add bookmarks
+- Run the same job on a whole folder of PDFs
 
 ## Getting started
 
-You need **Windows 10 or 11** and **Python 3.14** (free; 3.11 to 3.13 also work). The [User Guide](docs/USER_GUIDE.md#2-what-you-need) shows exactly which installer to download.
+You need Windows 10 or 11 and Python 3.14, which is free. Python 3.11 to 3.13 also work. The [User Guide](docs/USER_GUIDE.md#2-what-you-need) shows exactly which installer to download.
 
-1. Click the green **Code** button on this page, then **Download ZIP**.
-2. Right-click the downloaded ZIP and choose **Extract All…**.
-3. In the extracted folder, double-click **`setupEnv.bat`**. This is a one-time setup that takes a few minutes.
-4. From then on, double-click **`start.bat`** to use JAP-T.
+1. Click the green "Code" button on this page, then "Download ZIP".
+2. Right-click the downloaded ZIP file and choose "Extract All…".
+3. In the extracted folder, double-click `setupEnv.bat`. This only needs doing once and takes a few minutes.
+4. After that, double-click `start.bat` whenever you want to use JAP-T.
 
-**New to this?** The **[User Guide](docs/USER_GUIDE.md)** walks you through everything step by step, with no programming knowledge needed. It includes a quick start, a "which option do I need?" table, and troubleshooting.
+The [User Guide](docs/USER_GUIDE.md) explains setup and every option step by step, and has a troubleshooting section. No programming knowledge is needed.
 
-A few features need extra free programs: Tesseract and Ghostscript for OCR and PDF/A, and Word or LibreOffice for Word → PDF. Setup tells you which ones are missing; see [What you need](docs/USER_GUIDE.md#2-what-you-need).
+A few features need other free programs: Tesseract and Ghostscript for OCR and PDF/A, and Word or LibreOffice for Word → PDF. The setup check tells you which ones are missing. See [What you need](docs/USER_GUIDE.md#2-what-you-need).
 
 ---
 
@@ -35,14 +36,14 @@ A few features need extra free programs: Tesseract and Ghostscript for OCR and P
 | Path | What it is |
 |---|---|
 | `src/pdfsuite.py` | The whole tool: the menu, the command line and every feature |
-| `setupEnv.bat` / `start.bat` | One-time setup (finds a supported Python, creates `venv\` and installs `requirements.txt`) / start the menu |
+| `setupEnv.bat` / `start.bat` | One-time setup (finds the newest supported Python, creates `venv\` and installs `requirements.txt`) / start the menu |
 | `tests/` | Automated tests |
 | `run_tests.bat`, `requirements-dev.txt` | Run the tests / the test runner (`pytest`) |
 | `docs/USER_GUIDE.md` | The user guide |
 
 ### Supported Python versions
 
-Python **3.11 to 3.14**. `requirements.txt` pins exact versions, and every pinned package has a ready-made Windows build for each of these Pythons, so setup never needs a compiler. (For 3.15, several packages, including numpy, pillow and pikepdf at their pinned versions, have no Windows builds yet.) `setupEnv.bat` picks a supported Python automatically, through the `py` launcher if needed.
+Python **3.11 to 3.14**. `requirements.txt` pins exact versions, and every pinned package has a ready-made Windows build for each of these Pythons, so setup never needs a compiler. (For 3.15, several packages, including numpy, pillow and pikepdf at their pinned versions, have no Windows builds yet.) `setupEnv.bat` picks the newest supported Python through the `py` launcher (3.14, then 3.13, …) and falls back to `python` on PATH. To move an existing install to a newer Python, delete `venv\` and run `setupEnv.bat` again.
 
 ### Running the tests
 
