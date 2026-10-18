@@ -10,16 +10,12 @@ if exist "venv\Scripts\python.exe" (
     exit /b 1
 )
 
-REM Install pytest (the test runner) the first time.
+REM pytest (the test runner) is installed by setupEnv.bat. Older setups may not have it.
 "%PY%" -m pytest --version >nul 2>&1
 if errorlevel 1 (
-    echo Installing the test tools...
-    "%PY%" -m pip install -r requirements-dev.txt
-    if errorlevel 1 (
-        echo Failed to install the test tools.
-        pause
-        exit /b 1
-    )
+    echo The test runner is missing. Run setupEnv.bat again, then try again.
+    pause
+    exit /b 1
 )
 
 REM Extra arguments are passed to pytest, e.g. run_tests.bat -k redact
