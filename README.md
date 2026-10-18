@@ -1,5 +1,7 @@
 # JAP-T: Just Another PDF Tool
 
+[![Tests](https://github.com/Hachiman2284/JustAnotherPdfTool-JAPT/actions/workflows/tests.yml/badge.svg)](https://github.com/Hachiman2284/JustAnotherPdfTool-JAPT/actions/workflows/tests.yml)
+
 A free PDF toolkit for Windows. You choose a job from a numbered menu and answer a few questions. It runs on your own computer and doesn't upload your files anywhere.
 
 ## What it can do
