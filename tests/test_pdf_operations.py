@@ -545,3 +545,37 @@ def test_menu_watermark_accepts_decimal_angle(tmp_path, pdf3, monkeypatch) -> No
     monkeypatch.setattr(builtins, "input", lambda prompt="": next(answers))
     assert pdfsuite.interactive_menu() == 0
     assert all("ANGLE" in t for t in page_texts(out))
+
+
+# --- PDF -> DOCX ----------------------------------------------------------------
+
+
+def test_pdf_to_docx_keeps_text_and_tables(tmp_path) -> None:
+    docx = pytest.importorskip("docx")
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "Quarterly report", fontsize=16)
+    page.insert_text((72, 100), "Revenue grew in every region.", fontsize=11)
+    # A simple ruled 2x2 table, which pdf2docx detects from its lines.
+    x0, y0, w, h = 72, 130, 150, 25
+    for row in range(3):
+        page.draw_line((x0, y0 + row * h), (x0 + 2 * w, y0 + row * h))
+    for col in range(3):
+        page.draw_line((x0 + col * w, y0), (x0 + col * w, y0 + 2 * h))
+    for row, (a, b) in enumerate([("Region", "Sales"), ("North", "120")]):
+        page.insert_text((x0 + 5, y0 + row * h + 17), a, fontsize=11)
+        page.insert_text((x0 + w + 5, y0 + row * h + 17), b, fontsize=11)
+    src = tmp_path / "report.pdf"
+    doc.save(str(src))
+
+    out = tmp_path / "report.docx"
+    assert pdfsuite.pdf_to_docx(src, out)
+    result = docx.Document(str(out))
+    text = "\n".join(p.text for p in result.paragraphs)
+    assert "Quarterly report" in text and "Revenue grew in every region." in text
+    cells = [c.text.strip() for t in result.tables for row in t.rows for c in row.cells]
+    assert {"Region", "Sales", "North", "120"} <= set(cells)
+
+
+def test_pdf_to_docx_missing_input(tmp_path) -> None:
+    assert not pdfsuite.pdf_to_docx(tmp_path / "missing.pdf", tmp_path / "out.docx")

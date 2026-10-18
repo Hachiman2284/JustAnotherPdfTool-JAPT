@@ -22,7 +22,7 @@ You don't need any programming experience. If you can open a folder and double-c
 
 ## 1. Quick start
 
-1. Install **Python** (free) from [python.org/downloads](https://www.python.org/downloads/). See [What you need](#2-what-you-need) if you're unsure how.
+1. Install **Python 3.14** (free). See [What you need](#2-what-you-need) for exactly which file to download.
 2. Download JAP-T, extract it, and **double-click `setupEnv.bat`**. This is needed once; details in [First-time setup](#3-first-time-setup).
 3. From then on, **double-click `start.bat`** to open JAP-T, type the number of the job you want, and answer the questions.
 
@@ -52,10 +52,14 @@ Press Enter to return to the menu...
 ### Required
 
 - **Windows 10 or 11.**
-- **Python 3.10 or newer**, the free program JAP-T runs on:
-  1. Go to [python.org/downloads](https://www.python.org/downloads/) and click the big yellow **Download Python** button.
-  2. Open the downloaded file and click **Install Now**. The default options are fine.
-  3. When it says "Setup was successful", click **Close**.
+- **Python 3.14**, the free program JAP-T runs on. (Python 3.11, 3.12 and 3.13 also work.)
+  1. Go to [python.org/downloads/windows](https://www.python.org/downloads/windows/).
+  2. Under **Stable Releases**, find the newest **Python 3.14** (for example "Python 3.14.6") and click **Download Windows installer (64-bit)** below it.
+     Don't use the big yellow button on python.org's home page: it gives the very newest Python, which JAP-T may not support yet.
+  3. Open the downloaded file and click **Install Now**. The default options are fine.
+  4. When it says "Setup was successful", click **Close**.
+
+  Already have a different Python? Keep it. Just install 3.14 as well: JAP-T finds and uses 3.14 by itself.
 
 ### Optional: only for some features
 
@@ -459,7 +463,8 @@ Add `--log-level WARNING` before the command name to see only warnings and error
 | Message or problem | What to do |
 |---|---|
 | "Windows protected your PC" | Click **More info**, then **Run anyway**. Windows shows this for files downloaded from the internet. |
-| `Python is not installed.` during setup | Install Python from [python.org/downloads](https://www.python.org/downloads/) (see [What you need](#2-what-you-need)), then run `setupEnv.bat` again. |
+| `Python is not installed.` during setup | Install Python 3.14 (see [What you need](#2-what-you-need)), then run `setupEnv.bat` again. |
+| `Found Python 3.x, but JAP-T needs Python 3.11, 3.12, 3.13 or 3.14.` | Your Python is too new or too old. Install Python 3.14 as well (see [What you need](#2-what-you-need)); you can keep the other one. Then run `setupEnv.bat` again. |
 | `Setup did not finish.` | Read the message just above it, fix that problem (often: no internet connection), then run `setupEnv.bat` again. |
 | `JAP-T is not set up yet.` when starting | Double-click `setupEnv.bat` first. |
 | `Missing Python package: …` | Setup didn't finish. Run `setupEnv.bat` again. |

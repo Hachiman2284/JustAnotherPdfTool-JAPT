@@ -15,7 +15,7 @@ A free PDF toolkit for Windows. Pick a job from a simple numbered menu, answer a
 
 ## Getting started
 
-You need **Windows 10 or 11** and **Python** (free, from [python.org/downloads](https://www.python.org/downloads/)).
+You need **Windows 10 or 11** and **Python 3.14** (free; 3.11 to 3.13 also work). The [User Guide](docs/USER_GUIDE.md#2-what-you-need) shows exactly which installer to download.
 
 1. Click the green **Code** button on this page, then **Download ZIP**.
 2. Right-click the downloaded ZIP and choose **Extract All…**.
@@ -35,16 +35,20 @@ A few features need extra free programs: Tesseract and Ghostscript for OCR and P
 | Path | What it is |
 |---|---|
 | `src/pdfsuite.py` | The whole tool: the menu, the command line and every feature |
-| `setupEnv.bat` / `start.bat` | One-time setup (creates `venv\` and installs `requirements.txt`) / start the menu |
+| `setupEnv.bat` / `start.bat` | One-time setup (finds a supported Python, creates `venv\` and installs `requirements.txt`) / start the menu |
 | `tests/` | Automated tests |
 | `run_tests.bat`, `requirements-dev.txt` | Run the tests / the test runner (`pytest`) |
 | `docs/USER_GUIDE.md` | The user guide |
+
+### Supported Python versions
+
+Python **3.11 to 3.14**. `requirements.txt` pins exact versions, and every pinned package has a ready-made Windows build for each of these Pythons, so setup never needs a compiler. (For 3.15, several packages, including numpy, pillow and pikepdf at their pinned versions, have no Windows builds yet.) `setupEnv.bat` picks a supported Python automatically, through the `py` launcher if needed.
 
 ### Running the tests
 
 The tests check every feature. You don't need them to use the tool; they're for checking that a change hasn't broken anything.
 
-After running `setupEnv.bat` once, double-click **`run_tests.bat`**. The first time, it installs the test runner, `pytest`, from `requirements-dev.txt`. It ends with a summary such as `174 passed`. A failure names the test and shows what went wrong.
+After running `setupEnv.bat` once, double-click **`run_tests.bat`**. The first time, it installs the test runner, `pytest`, from `requirements-dev.txt`. It ends with a summary such as `176 passed`. A failure names the test and shows what went wrong.
 
 From a Command Prompt you can also run a subset, for example `run_tests.bat -k redact`, or run pytest directly:
 
