@@ -38,7 +38,8 @@ A few features need other free programs: Tesseract and Ghostscript for OCR and P
 | `src/pdfsuite.py` | The whole tool: the menu, the command line and every feature |
 | `setupEnv.bat` / `start.bat` | One-time setup (finds the newest supported Python, creates `venv\` and installs `requirements.txt`) / start the menu |
 | `tests/` | Automated tests |
-| `run_tests.bat`, `requirements-dev.txt` | Run the tests / the test runner (`pytest`) |
+| `run_tests.bat` | Run the tests |
+| `.github/workflows/tests.yml` | Runs the tests on Windows with Python 3.11–3.14 for every push and pull request |
 | `docs/USER_GUIDE.md` | The user guide |
 
 ### Supported Python versions
@@ -49,16 +50,15 @@ Python **3.11 to 3.14**. `requirements.txt` pins exact versions, and every pinne
 
 The tests check every feature. You don't need them to use the tool; they're for checking that a change hasn't broken anything.
 
-After running `setupEnv.bat` once, double-click **`run_tests.bat`**. The first time, it installs the test runner, `pytest`, from `requirements-dev.txt`. It ends with a summary such as `176 passed`. A failure names the test and shows what went wrong.
+After running `setupEnv.bat` once, double-click **`run_tests.bat`**. The test runner, `pytest`, is installed by `setupEnv.bat` with everything else (if you set up JAP-T before it was added, run `setupEnv.bat` again). It ends with a summary such as `176 passed`. A failure names the test and shows what went wrong.
 
 From a Command Prompt you can also run a subset, for example `run_tests.bat -k redact`, or run pytest directly:
 
 ```bat
-venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 venv\Scripts\python.exe -m pytest tests
 ```
 
-Tests that need Tesseract and Ghostscript (OCR, PDF/A) or LibreOffice run only when those are installed, and are reported as *skipped* otherwise.
+Tests that need Tesseract and Ghostscript (OCR, PDF/A) or LibreOffice run only when those are installed, and are reported as *skipped* otherwise. GitHub Actions doesn't install them, so those tests are skipped there.
 
 ## License
 
