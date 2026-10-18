@@ -381,6 +381,57 @@ def _libreoffice_profile_dir() -> Path:
     return Path(base) / "JAP-T" / "libreoffice-profile"
 
 
+# Settings forced in JAP-T's LibreOffice profile: (configuration path, setting).
+# A new profile starts with LibreOffice's defaults, which on Windows include
+# checking for updates and installing them; a conversion must not do either.
+_LIBREOFFICE_SETTINGS_OFF = (
+    ("/org.openoffice.Office.Jobs/Jobs/org.openoffice.Office.Jobs:Job['UpdateCheck']/Arguments", "AutoCheckEnabled"),
+    ("/org.openoffice.Office.Jobs/Jobs/org.openoffice.Office.Jobs:Job['UpdateCheck']/Arguments", "AutoDownloadEnabled"),
+    ("/org.openoffice.Office.Update/Update", "Enabled"),
+)
+
+
+def _prepare_libreoffice_profile(profile: Path) -> None:
+    """Switch off update checks and automatic updates in JAP-T's LibreOffice profile.
+
+    Applied before every conversion, so it also corrects a profile that was
+    created with LibreOffice's defaults. Other settings in the file are kept.
+    """
+    settings = profile / "user" / "registrymodifications.xcu"
+    if settings.is_file():
+        lines = settings.read_text(encoding="utf-8").splitlines()
+    else:
+        lines = [
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            '<oor:items xmlns:oor="http://openoffice.org/2001/registry" '
+            'xmlns:xs="http://www.w3.org/2001/XMLSchema" '
+            'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">',
+            "</oor:items>",
+        ]
+    ours = [
+        f'<item oor:path="{path}"><prop oor:name="{name}" oor:op="fuse"><value>false</value></prop></item>'
+        for path, name in _LIBREOFFICE_SETTINGS_OFF
+    ]
+    # LibreOffice writes one <item> per line; drop any existing value for our
+    # settings, then add ours just before the closing tag.
+    kept = [
+        line
+        for line in lines
+        if not any(
+            f'oor:path="{path}"' in line and f'oor:name="{name}"' in line for path, name in _LIBREOFFICE_SETTINGS_OFF
+        )
+    ]
+    text = "\n".join(kept)
+    end = text.rfind("</oor:items>")
+    if end == -1:  # not a settings file LibreOffice could read; start a fresh one
+        settings.unlink()
+        return _prepare_libreoffice_profile(profile)
+    new_text = text[:end].rstrip("\n") + "\n" + "\n".join(ours) + "\n" + text[end:].rstrip("\n") + "\n"
+    if new_text != "\n".join(lines) + "\n":
+        settings.parent.mkdir(parents=True, exist_ok=True)
+        settings.write_text(new_text, encoding="utf-8")
+
+
 def _convert_with_libreoffice(input_docx: Path, out_dir: Path) -> bool:
     """Convert input_docx to out_dir/<name>.pdf with headless LibreOffice.
 
@@ -396,6 +447,7 @@ def _convert_with_libreoffice(input_docx: Path, out_dir: Path) -> bool:
     # window takes over the job and nothing is written. It is kept between
     # runs because setting up a new profile is slow.
     profile = _libreoffice_profile_dir()
+    _prepare_libreoffice_profile(profile)
     cmd = [
         soffice,
         f"-env:UserInstallation={profile.as_uri()}",
