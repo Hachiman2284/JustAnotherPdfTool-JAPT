@@ -296,7 +296,7 @@ def pdf_to_docx(input_pdf: str | Path, output_docx: str | Path) -> bool:
     try:
         from pdf2docx import Converter
     except ModuleNotFoundError:
-        logger.error("Missing dependency: pdf2docx (install with `pip install pdf2docx`)")
+        logger.error("Missing Python package: pdf2docx. Run setupEnv.bat again.")
         return False
 
     cv = None
@@ -534,7 +534,7 @@ def ocr_pdf(
         import ocrmypdf
         from ocrmypdf.exceptions import PriorOcrFoundError
     except ModuleNotFoundError:
-        logger.error("Missing dependency: ocrmypdf (install with `pip install ocrmypdf`)")
+        logger.error("Missing Python package: ocrmypdf. Run setupEnv.bat again.")
         return False
 
     try:
@@ -669,7 +669,7 @@ def images_to_pdf(
     try:
         import img2pdf
     except ModuleNotFoundError:
-        logger.error("Missing dependency: img2pdf (install with `pip install img2pdf`)")
+        logger.error("Missing Python package: img2pdf. Run setupEnv.bat again.")
         return False
 
     try:
@@ -1840,7 +1840,7 @@ def convert_to_pdfa(input_pdf: str | Path, output_pdf: str | Path, *, ocr: bool 
         import ocrmypdf
         from ocrmypdf.exceptions import EncryptedPdfError, MissingDependencyError
     except ModuleNotFoundError:
-        logger.error("Missing dependency: ocrmypdf (install with `pip install ocrmypdf`)")
+        logger.error("Missing Python package: ocrmypdf. Run setupEnv.bat again.")
         return False
 
     kwargs: dict[str, object] = {"output_type": "pdfa", "skip_text": True}
