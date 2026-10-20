@@ -84,7 +84,7 @@ Tesseract only reads English unless you add more languages. To read other langua
 
 You only need to do this once.
 
-1. On the JAP-T GitHub page, click the green "Code" button, then "Download ZIP".
+1. On the JAP-T GitHub page, click the "Code" button above the list of files, then "Download ZIP".
 2. In your Downloads folder, right-click the ZIP file and choose "Extract All…". Pick a place to keep JAP-T, for example `C:\Tools`. This creates a folder such as `C:\Tools\JustAnotherPdfTool-JAPT-main`.
    JAP-T does not work from inside the ZIP file, so make sure you extract it first.
 3. Open the extracted folder and double-click `setupEnv.bat`.
@@ -101,12 +101,13 @@ JAP-T setup check
 [ OK ] Python 3.14.6
 [ OK ] Python packages
 [WARN] Tesseract OCR not found. OCR (options 2 and 20) and PDF/A (option 27) will not work. Get it from ...
-[ OK ] Ghostscript: C:\Program Files\gs\gs10.06.0\bin\gswin64c.exe
+[ OK ] Ghostscript 10.08.0: C:\Program Files\gs\gs10.08.0\bin\gswin64c.exe
 [ OK ] DOCX -> PDF: Microsoft Word
 ```
 
 - `OK` means ready.
 - `WARN` means one feature won't work until you install the program it names. The rest of JAP-T works normally.
+  A warning that Ghostscript is out of date means your version has known security problems. Everything still works, but install the latest version from the Ghostscript website. It replaces the old one, or you can uninstall the old one afterwards from Settings → Apps.
 - `FAIL` means setup did not finish. Run `setupEnv.bat` again.
 
 You can run the same check later with menu option 23, for example after installing Tesseract.

@@ -186,6 +186,30 @@ def _find_ghostscript() -> str | None:
     return _first_file((Path(dll).parent for dll in dll_paths), exes)
 
 
+# Ghostscript reads every PDF that JAP-T compresses, OCRs or turns into PDF/A,
+# so an old version with known security bugs gets a warning. 10.08.0
+# (September 2026) is the newest release and fixes security problems in all
+# earlier ones; raise this when a later release fixes more.
+_GHOSTSCRIPT_SAFE_VERSION = (10, 8, 0)
+
+
+def _ghostscript_version(gs: str) -> tuple[int, ...] | None:
+    """The version of the Ghostscript program at gs, e.g. (10, 8, 0), or None if unknown."""
+    try:
+        completed = subprocess.run([gs, "--version"], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    match = re.fullmatch(r"(\d+)\.(\d+)(?:\.(\d+))?", completed.stdout.strip())
+    if completed.returncode != 0 or not match:
+        return None
+    return tuple(int(part or 0) for part in match.groups())
+
+
+def _format_ghostscript_version(version: tuple[int, ...]) -> str:
+    """Write a version the way Ghostscript does, e.g. (10, 8, 0) -> "10.08.0"."""
+    return f"{version[0]}.{version[1]:02d}.{version[2]}"
+
+
 def _find_tesseract() -> str | None:
     """Find Tesseract OCR."""
     found = _find_program(("tesseract",), ("Tesseract-OCR/tesseract.exe",))
@@ -2254,7 +2278,19 @@ def check_setup() -> int:
 
     gs = _find_ghostscript()
     if gs:
-        report("OK", f"Ghostscript: {gs}")
+        version = _ghostscript_version(gs)
+        safe = _format_ghostscript_version(_GHOSTSCRIPT_SAFE_VERSION)
+        if version is None:
+            report("WARN", f"Ghostscript: {gs}, but its version could not be read. Make sure it is {safe} or newer.")
+        elif version < _GHOSTSCRIPT_SAFE_VERSION:
+            report(
+                "WARN",
+                f"Ghostscript {_format_ghostscript_version(version)} is out of date. Versions before {safe} have known security "
+                "problems, and JAP-T uses Ghostscript on every PDF you compress, OCR or turn into "
+                "PDF/A. Install the latest version from https://ghostscript.com/releases/gsdnld.html",
+            )
+        else:
+            report("OK", f"Ghostscript {_format_ghostscript_version(version)}: {gs}")
     else:
         report(
             "WARN",
