@@ -220,7 +220,7 @@ The menu never changes your original file. It always saves the result as a new f
 |---|---|---|---|
 | 1 | PDF → DOCX | Turns a PDF into a Word document you can edit. It works best on PDFs that contain real text rather than scans. | Input PDF, output `.docx` |
 | 22 | DOCX → PDF | Turns a Word document into a PDF. Needs Microsoft Word or LibreOffice. | Input `.docx`, output PDF |
-| 5 | Images → PDF | Puts pictures into one PDF, one picture per page. Works with JPG, PNG, TIFF, BMP, GIF and WebP. JPG, PNG and TIFF pictures are copied in without any loss of quality, and photos are turned the right way up. | Image folder, output name, optional list of file names |
+| 5 | Images → PDF | Puts pictures into one PDF, one picture per page. Works with JPG, PNG, TIFF, BMP, GIF and WebP. A file has to really be the type its name says; a renamed file of another type is refused. JPG, PNG and TIFF pictures are copied in without any loss of quality, and photos are turned the right way up. | Image folder, output name, optional list of file names |
 | 16 | PDF → images | Saves each page as a picture (`page_0001.png`, `page_0002.png` and so on). | Input PDF, output folder, DPI, format (`png` or `jpg`) |
 | 7 | Extract text | Saves the text of a PDF in a `.txt` file. Press Enter at the output question to save it next to the PDF under the same name. | Input PDF, output `.txt` |
 | 15 | Extract images | Saves the pictures that are inside a PDF into a folder. | Input PDF, output folder |
@@ -314,7 +314,15 @@ Both options also work with text in other scripts, such as Japanese, Chinese, Ko
 
 Type the text you want removed. To remove several things at once, separate them with `|`, for example `John Smith | 12345678`. It doesn't matter whether you use capital letters.
 
-Drawing a black box over text only hides it, and the text can often still be copied out. Redaction deletes the text itself, so it can't be copied, searched or recovered from the new file. There are some limits to be aware of:
+Drawing a black box over text only hides it, and the text can often still be copied out. Redaction deletes the text itself, so it can't be copied, searched or recovered from the new file.
+
+Text can also hide outside the page, and JAP-T deals with that too:
+
+- Comments (sticky notes) that contain the text are deleted.
+- In form fields, the text is replaced with `[redacted]`.
+- Attached files that contain the text are deleted. JAP-T can't look inside compressed files such as Word documents or ZIPs, so it lists any attached files it leaves in place. Check those yourself.
+
+There are some limits to be aware of:
 
 - Scanned pages are pictures, so the words on them can't be found. Run OCR (option 2) first, then redact the result. JAP-T lists the pages that contain no text.
 - The title, author and bookmarks are stored outside the pages, so redaction doesn't change them. JAP-T warns you if your text appears there. You can change them with options 18 and 25.
@@ -328,7 +336,7 @@ Open the redacted PDF and check it before you send it to anyone.
 |---|---|---|
 | 19 | PDF info | Shows how many pages a PDF has and whether it has a password. |
 | 17 | Show metadata | Shows the details stored inside the PDF, such as title, author, the program that created it and dates. |
-| 18 | Set metadata | Changes those details. Anything you don't mention stays as it is. |
+| 18 | Set metadata | Changes those details. Anything you don't mention stays as it is. Some PDFs store these details twice, and JAP-T changes both copies. |
 | 23 | Check setup | Shows which optional programs JAP-T has found and which features need something installed. |
 
 Set metadata expects the details in a fixed format called JSON, like this:
@@ -337,7 +345,7 @@ Set metadata expects the details in a fixed format called JSON, like this:
 {"/Title": "Annual Report 2026", "/Author": "Jane Doe"}
 ```
 
-The usual keys are `/Title`, `/Author`, `/Subject` and `/Keywords`. Type the slashes, quote marks and curly brackets exactly as shown.
+The usual keys are `/Title`, `/Author`, `/Subject` and `/Keywords`. Type the slashes, quote marks and curly brackets exactly as shown. To remove a detail, give it an empty value, for example `{"/Author": ""}`.
 
 ### Batch processing
 

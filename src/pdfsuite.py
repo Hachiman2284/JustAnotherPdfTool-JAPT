@@ -600,8 +600,21 @@ def merge_pdfs(pdf_paths: Sequence[str | Path], output_pdf: str | Path) -> bool:
         return False
 
 
-# Image types images_to_pdf picks up from a folder.
-_IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".gif", ".webp")
+# Image types images_to_pdf accepts, and the Pillow format each may contain.
+# Pillow picks its decoder from a file's content, not its name, so without this
+# a file named .png could reach any of Pillow's decoders, including rarely used
+# ones with a history of security bugs (EPS even runs Ghostscript).
+_IMAGE_FORMATS = {
+    ".jpg": ("JPEG",),
+    ".jpeg": ("JPEG",),
+    ".png": ("PNG",),
+    ".tif": ("TIFF",),
+    ".tiff": ("TIFF",),
+    ".bmp": ("BMP",),
+    ".gif": ("GIF",),
+    ".webp": ("WEBP",),
+}
+_IMAGE_SUFFIXES = tuple(_IMAGE_FORMATS)
 
 
 def _image_for_img2pdf(path: Path) -> str | bytes:
@@ -610,13 +623,25 @@ def _image_for_img2pdf(path: Path) -> str | bytes:
     img2pdf embeds JPEG, and PNG/TIFF without transparency, as-is (no quality
     loss). Anything else (BMP, GIF, WebP, or images with transparency)
     is converted to PNG with Pillow first; transparent areas become white.
+
+    Raises:
+        ValueError: If the file type isn't supported, or the content doesn't
+            match the file's extension.
     """
-    if path.suffix.lower() in {".jpg", ".jpeg"}:
-        return str(path)
+    from PIL import Image, ImageOps, UnidentifiedImageError
 
-    from PIL import Image, ImageOps
+    suffix = path.suffix.lower()
+    formats = _IMAGE_FORMATS.get(suffix)
+    if formats is None:
+        raise ValueError(f"{suffix or 'files without an extension'} is not a supported image type")
+    try:
+        img = Image.open(path, formats=formats)
+    except UnidentifiedImageError:
+        raise ValueError(f"the file is not a real {suffix} image (its content doesn't match its name)") from None
 
-    with Image.open(path) as img:
+    with img:
+        if suffix in {".jpg", ".jpeg"}:
+            return str(path)
         has_alpha = "A" in img.getbands() or "transparency" in img.info
         if img.format in {"PNG", "TIFF"} and not has_alpha:
             return str(path)
@@ -1583,11 +1608,45 @@ def set_pdf_metadata(input_pdf: str | Path, output_pdf: str | Path, metadata: di
         _ensure_parent_dir(output_pdf)
         with open(output_pdf, "wb") as f:
             writer.write(f)
+        try:
+            _update_xmp_metadata(output_pdf, metadata)
+        except Exception as exc:
+            logger.warning(
+                "The details were changed, but their second copy (XMP) could not be, so some "
+                "PDF viewers may still show the old values: %s",
+                exc,
+            )
         logger.info("Metadata updated -> %s", output_pdf)
         return True
     except Exception as exc:
         logger.error("Metadata update failed: %s", exc)
         return False
+
+
+def _update_xmp_metadata(pdf_path: Path, metadata: dict[str, str]) -> None:
+    """Copy changed details into the PDF's second copy of them (XMP), if it has one.
+
+    PDFs can store the title, author and so on twice. Many viewers, Adobe
+    Reader among them, show the XMP copy, so changing only the other one would
+    leave the old values on show. An empty value removes the detail.
+    """
+    import warnings
+
+    import pikepdf
+
+    with pikepdf.open(pdf_path, allow_overwriting_input=True) as pdf:
+        if "/Metadata" not in pdf.Root:
+            return
+        with pdf.open_metadata(set_pikepdf_as_editor=False, update_docinfo=False) as meta:
+            # Details with no XMP equivalent only produce warnings; skip them quietly.
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                meta.load_from_docinfo({k: v for k, v in metadata.items() if v})
+            for uri, name, docinfo_name, _ in meta.DOCINFO_MAPPING:
+                key = f"{{{uri}}}{name}"
+                if metadata.get(str(docinfo_name)) == "" and key in meta:
+                    del meta[key]
+        pdf.save(pdf_path)
 
 
 def insert_pages_pdf(
@@ -1735,12 +1794,38 @@ def add_bookmark(input_pdf: str | Path, output_pdf: str | Path, title: str, page
         return False
 
 
+def _text_contains(text: str, terms: Sequence[str]) -> bool:
+    """True if any of the terms appears in text, ignoring upper/lower case."""
+    text = text.lower()
+    return any(term.lower() in text for term in terms)
+
+
+def _bytes_contain(data: bytes, terms: Sequence[str]) -> bool:
+    """True if any of the terms appears in raw file data as UTF-8 or UTF-16 text.
+
+    Upper/lower case is ignored for English letters only; compressed data
+    (Word files, ZIPs) can't be searched this way.
+    """
+    data = data.lower()
+    return any(term.lower().encode(enc) in data for term in terms for enc in ("utf-8", "utf-16-le"))
+
+
+def _annotation_contains(annot: "pymupdf.Annot", terms: Sequence[str]) -> bool:
+    """True if a comment's text, or the file attached to it, contains any of the terms."""
+    text = " ".join(annot.info.get(k, "") for k in ("content", "title", "subject"))
+    if _text_contains(text, terms):
+        return True
+    return annot.type[0] == pymupdf.PDF_ANNOT_FILE_ATTACHMENT and _bytes_contain(annot.get_file(), terms)
+
+
 def redact_text_pdf(input_pdf: str | Path, output_pdf: str | Path, terms: Sequence[str]) -> int | None:
     """Permanently remove every occurrence of some text, leaving black boxes.
 
     Unlike drawing a box over text, the text itself is deleted from the
     page, so it cannot be copied, searched or recovered. Images under the
-    boxes are blanked too. Matching ignores upper/lower case.
+    boxes are blanked too. Comments and attached files that contain the text
+    are deleted as well, and the text in form fields becomes "[redacted]". Matching
+    ignores upper/lower case.
 
     Args:
         input_pdf: Input PDF.
@@ -1748,8 +1833,8 @@ def redact_text_pdf(input_pdf: str | Path, output_pdf: str | Path, terms: Sequen
         terms: Words or phrases to remove.
 
     Returns:
-        Number of areas removed, or None on failure or when nothing matched
-        (then no output is written).
+        Number of areas, comments, form fields and attached files changed, or
+        None on failure or when nothing matched (then no output is written).
     """
     input_pdf = _as_path(input_pdf)
     output_pdf = _as_path(output_pdf)
@@ -1765,7 +1850,27 @@ def redact_text_pdf(input_pdf: str | Path, output_pdf: str | Path, terms: Sequen
         with _open_pdf_for_edit(input_pdf) as doc:
             count = 0
             no_text_pages: list[int] = []
+            removed_comments = 0
+            cleared_fields = 0
             for page in doc:
+                # Comments (and files attached to a spot on the page) are not
+                # page text, so the black boxes don't reach them; delete the
+                # ones that mention the text.
+                matching = [annot.xref for annot in page.annots() if _annotation_contains(annot, terms)]
+                for xref in matching:
+                    page.delete_annot(page.load_annot(xref))
+                removed_comments += len(matching)
+                # Form fields keep their typed-in value apart from the page too.
+                # (PyMuPDF ignores an empty value, so a placeholder is used.)
+                for widget in page.widgets():
+                    value = widget.field_value
+                    if isinstance(value, str) and _text_contains(value, terms):
+                        for term in terms:
+                            value = re.sub(re.escape(term), "[redacted]", value, flags=re.IGNORECASE)
+                        widget.field_value = value
+                        widget.update()
+                        cleared_fields += 1
+
                 if not page.get_text("text").strip():
                     # Only pages with pictures can hide text; blank pages can't.
                     if page.get_images():
@@ -1783,9 +1888,32 @@ def redact_text_pdf(input_pdf: str | Path, output_pdf: str | Path, terms: Sequen
                     "Text inside images can't be found; run OCR first.",
                     ", ".join(map(str, no_text_pages)),
                 )
-            if count == 0:
+            # Files attached to the whole document.
+            removed_files = []
+            for name in doc.embfile_names():
+                info = doc.embfile_info(name)
+                described = " ".join(str(info.get(k) or "") for k in ("filename", "ufilename", "description"))
+                if _text_contains(f"{name} {described}", terms) or _bytes_contain(doc.embfile_get(name), terms):
+                    doc.embfile_del(name)
+                    removed_files.append(name)
+
+            if count == 0 and not removed_comments and not cleared_fields and not removed_files:
                 logger.error("None of the text was found, so nothing was written.")
                 return None
+            if removed_comments:
+                logger.info("Deleted %d comment(s) that contained the text.", removed_comments)
+            if cleared_fields:
+                logger.info("Removed the text from %d form field(s).", cleared_fields)
+            if removed_files:
+                logger.info("Deleted attached file(s) that contained the text: %s", ", ".join(removed_files))
+            remaining_files = doc.embfile_names()
+            if remaining_files:
+                # Compressed attachments (Word files, ZIPs, ...) can't be searched.
+                logger.warning(
+                    "The PDF has attached files that JAP-T could not find the text in: %s. "
+                    "Files such as Word documents or ZIPs can't be searched, so check them yourself.",
+                    ", ".join(remaining_files),
+                )
 
             leftover = [t for t in terms for page in doc if t.lower() in page.get_text("text").lower()]
             if leftover:
@@ -1808,7 +1936,7 @@ def redact_text_pdf(input_pdf: str | Path, output_pdf: str | Path, terms: Sequen
             # garbage=4 drops the replaced page content so it isn't left in the file.
             doc.save(str(output_pdf), garbage=4, deflate=True)
         logger.info("Redacted %d area(s) -> %s", count, output_pdf)
-        return count
+        return count + removed_comments + cleared_fields + len(removed_files)
     except Exception as exc:
         logger.error("Redaction failed: %s", exc)
         return None

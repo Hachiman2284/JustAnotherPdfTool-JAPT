@@ -133,6 +133,30 @@ def test_images_empty_folder_and_missing_file(tmp_path) -> None:
     assert not (tmp_path / "out.pdf").exists()
 
 
+def test_images_content_must_match_the_extension(tmp_path, caplog) -> None:
+    # Pillow picks a decoder from the content, so a disguised file would
+    # otherwise reach decoders JAP-T never meant to use (EPS runs Ghostscript).
+    _save(Image.new("L", (10, 10)), tmp_path / "eps.png", format="EPS")
+    _save(Image.new("RGB", (10, 10)), tmp_path / "tiff.png", format="TIFF")
+    _save(Image.new("RGB", (10, 10)), tmp_path / "pic.psd", format="PNG")
+    for name in ("eps.png", "tiff.png"):
+        assert not pdfsuite.images_to_pdf(tmp_path, [name], "out.pdf")
+        assert f"Cannot read image {name}: the file is not a real .png image" in caplog.text
+    assert not pdfsuite.images_to_pdf(tmp_path, ["pic.psd"], "out.pdf")
+    assert ".psd is not a supported image type" in caplog.text
+    assert not (tmp_path / "out.pdf").exists()
+
+
+def test_images_camera_jpeg_still_accepted(tmp_path) -> None:
+    # Many cameras and phones save JPEGs that Pillow reports as "MPO".
+    frames = [Image.new("RGB", (40, 30), c) for c in ("red", "blue")]
+    frames[0].save(tmp_path / "camera.jpg", format="MPO", save_all=True, append_images=frames[1:])
+    with Image.open(tmp_path / "camera.jpg") as img:
+        assert img.format == "MPO"
+    assert pdfsuite.images_to_pdf(tmp_path, ["camera.jpg"], "out.pdf")
+    assert page_sizes(tmp_path / "out.pdf")
+
+
 def test_images_cli_new_and_old_names(tmp_path) -> None:
     _save(Image.new("RGB", (10, 10)), tmp_path / "a.png", format="PNG")
     assert pdfsuite.main(["images-to-pdf", "--folder", str(tmp_path), "--out", "new.pdf"]) == 0
@@ -340,6 +364,74 @@ def test_redact_warns_about_scanned_pages_and_metadata(tmp_path, caplog) -> None
     assert pdfsuite.redact_text_pdf(tmp_path / "in.pdf", tmp_path / "r.pdf", ["secret"]) == 1
     assert "no text layer (scanned?) were skipped: 2." in caplog.text
     assert "document details or bookmarks" in caplog.text
+
+
+def _every_byte(path: Path) -> bytes:
+    """The whole PDF with every stream decompressed, lower-cased, to search for leftovers."""
+    pikepdf = pytest.importorskip("pikepdf")
+    buf = io.BytesIO()
+    with pikepdf.open(path) as pdf:
+        pdf.save(
+            buf,
+            compress_streams=False,
+            stream_decode_level=pikepdf.StreamDecodeLevel.all,
+            object_stream_mode=pikepdf.ObjectStreamMode.disable,
+        )
+    return buf.getvalue().lower()
+
+
+def _form_with_extras(path: Path, secret: str) -> Path:
+    """A page mentioning secret, plus a comment, a form field and attachments that do too."""
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((72, 100), f"Account {secret}", fontsize=14)
+    page.add_text_annot((300, 100), f"Reminder: {secret}")
+    page.add_text_annot((300, 200), "Unrelated note")
+    page.add_file_annot((300, 300), f"pinned {secret}".encode(), "pinned.txt")
+    widget = pymupdf.Widget()
+    widget.field_name = "account"
+    widget.field_type = pymupdf.PDF_WIDGET_TYPE_TEXT
+    widget.field_value = f"No. {secret}"
+    widget.rect = pymupdf.Rect(72, 400, 300, 430)
+    page.add_widget(widget)
+    doc.embfile_add("notes.txt", f"notes about {secret}".encode("utf-16-le"))
+    doc.embfile_add("other.txt", b"nothing private")
+    doc.save(str(path))
+    return path
+
+
+def test_redact_reaches_comments_form_fields_and_attachments(tmp_path, caplog) -> None:
+    src = _form_with_extras(tmp_path / "in.pdf", "SECRET123")
+    assert b"secret123" in _every_byte(src)
+    out = tmp_path / "r.pdf"
+    caplog.set_level(logging.INFO)
+
+    # 1 area on the page, 2 comments (one with an attached file), 1 field, 1 attached file.
+    assert pdfsuite.redact_text_pdf(src, out, ["secret123"]) == 5
+    assert b"secret123" not in _every_byte(out)
+
+    with pymupdf.open(str(out)) as doc:
+        assert [a.info["content"] for a in doc[0].annots()] == ["Unrelated note"]
+        assert [w.field_value for w in doc[0].widgets()] == ["No. [redacted]"]
+        assert doc.embfile_names() == ["other.txt"]
+    assert "Deleted 2 comment(s)" in caplog.text
+    assert "Removed the text from 1 form field(s)" in caplog.text
+    assert "Deleted attached file(s) that contained the text: notes.txt" in caplog.text
+    # Attachments left behind are pointed out, as they may be unsearchable.
+    assert "could not find the text in: other.txt" in caplog.text
+    # The old "could still be found" warning no longer fires for form fields.
+    assert "could still be found" not in caplog.text
+
+
+def test_redact_text_only_in_a_comment_still_writes(tmp_path) -> None:
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((72, 100), "Nothing private here", fontsize=14)
+    page.add_text_annot((300, 100), "Call Jane on 555-0100")
+    doc.save(str(tmp_path / "in.pdf"))
+
+    assert pdfsuite.redact_text_pdf(tmp_path / "in.pdf", tmp_path / "r.pdf", ["555-0100"]) == 1
+    assert b"555-0100" not in _every_byte(tmp_path / "r.pdf")
 
 
 def test_redact_cli_and_menu(tmp_path, letter, monkeypatch) -> None:

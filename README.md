@@ -41,7 +41,7 @@ A few features need other free programs: Tesseract and Ghostscript for OCR and P
 | `setupEnv.bat` / `start.bat` | One-time setup (finds the newest supported Python, creates `venv\` and installs `requirements.txt`) / start the menu |
 | `tests/` | Automated tests |
 | `run_tests.bat` | Run the tests |
-| `.github/workflows/tests.yml` | Runs the tests on Windows with Python 3.11–3.14 for every push and pull request |
+| `.github/workflows/tests.yml` | Runs the tests on Windows with Python 3.11–3.14, and checks the pinned packages for known security problems with `pip-audit`, on every push and pull request and once a week |
 | `docs/USER_GUIDE.md` | The user guide |
 
 ### Supported Python versions
@@ -52,7 +52,7 @@ Python **3.11 to 3.14**. `requirements.txt` pins exact versions, and every pinne
 
 The tests check every feature. You don't need them to use the tool; they're for checking that a change hasn't broken anything.
 
-After running `setupEnv.bat` once, double-click **`run_tests.bat`**. The test runner, `pytest`, is installed by `setupEnv.bat` with everything else (if you set up JAP-T before it was added, run `setupEnv.bat` again). It ends with a summary such as `176 passed`. A failure names the test and shows what went wrong.
+After running `setupEnv.bat` once, double-click **`run_tests.bat`**. The test runner, `pytest`, is installed by `setupEnv.bat` with everything else (if you set up JAP-T before it was added, run `setupEnv.bat` again). It ends with a summary such as `183 passed`. A failure names the test and shows what went wrong.
 
 From a Command Prompt you can also run a subset, for example `run_tests.bat -k redact`, or run pytest directly:
 
