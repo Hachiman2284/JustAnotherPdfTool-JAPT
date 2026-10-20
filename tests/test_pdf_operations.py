@@ -295,6 +295,52 @@ def test_metadata_set_keeps_other_keys(tmp_path, pdf3) -> None:
     assert meta["/Author"] == "A"
 
 
+_XMP_AUTHOR_AND_TITLE = (
+    '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+    '<rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/">'
+    "<dc:creator><rdf:Seq><rdf:li>Jane Real Name</rdf:li></rdf:Seq></dc:creator>"
+    '<dc:title><rdf:Alt><rdf:li xml:lang="x-default">Old title</rdf:li></rdf:Alt></dc:title>'
+    "</rdf:Description></rdf:RDF></x:xmpmeta>"
+)
+
+
+def test_metadata_set_updates_the_xmp_copy(tmp_path) -> None:
+    pikepdf = pytest.importorskip("pikepdf")
+    doc = pymupdf.open()
+    doc.new_page()
+    doc.set_metadata({"author": "Jane Real Name", "title": "Old title"})
+    doc.set_xml_metadata(_XMP_AUTHOR_AND_TITLE)
+    doc.save(str(tmp_path / "in.pdf"))
+
+    out = tmp_path / "out.pdf"
+    assert pdfsuite.set_pdf_metadata(tmp_path / "in.pdf", out, {"/Author": "Anonymous", "/Title": ""})
+    with pikepdf.open(out) as pdf:
+        assert pdf.docinfo["/Author"] == "Anonymous"
+        meta = pdf.open_metadata()
+        assert meta["dc:creator"] == ["Anonymous"]
+        assert "dc:title" not in meta  # an empty value removes it
+    assert b"Jane Real Name" not in out.read_bytes()
+
+
+def test_metadata_set_adds_no_xmp_when_there_was_none(tmp_path, pdf3) -> None:
+    out = tmp_path / "out.pdf"
+    assert pdfsuite.set_pdf_metadata(pdf3, out, {"/Author": "A"})
+    with pymupdf.open(str(out)) as doc:
+        assert doc.metadata["author"] == "A"
+        assert not doc.get_xml_metadata()
+
+
+def test_metadata_set_survives_unreadable_xmp(tmp_path, pdf3, monkeypatch, caplog) -> None:
+    def broken(*_args):
+        raise ValueError("bad XMP")
+
+    monkeypatch.setattr(pdfsuite, "_update_xmp_metadata", broken)
+    out = tmp_path / "out.pdf"
+    assert pdfsuite.set_pdf_metadata(pdf3, out, {"/Author": "A"})
+    assert pdfsuite.show_pdf_metadata(out)["/Author"] == "A"
+    assert "second copy (XMP) could not be" in caplog.text
+
+
 def test_parse_metadata_json() -> None:
     assert pdfsuite._parse_metadata_json('{"/Title": "X", "/Pages": 3}') == {"/Title": "X", "/Pages": "3"}
     for bad in ("[1]", "{oops"):
