@@ -52,7 +52,7 @@ Python **3.11 to 3.14**. `requirements.txt` pins exact versions, and every pinne
 
 The tests check every feature. You don't need them to use the tool; they're for checking that a change hasn't broken anything.
 
-After running `setupEnv.bat` once, double-click **`run_tests.bat`**. The test runner, `pytest`, is installed by `setupEnv.bat` with everything else (if you set up JAP-T before it was added, run `setupEnv.bat` again). It ends with a summary such as `183 passed`. A failure names the test and shows what went wrong.
+After running `setupEnv.bat` once, double-click **`run_tests.bat`**. The test runner, `pytest`, is installed by `setupEnv.bat` with everything else (if you set up JAP-T before it was added, run `setupEnv.bat` again). It ends with a summary such as `196 passed`. A failure names the test and shows what went wrong.
 
 From a Command Prompt you can also run a subset, for example `run_tests.bat -k redact`, or run pytest directly:
 
@@ -68,8 +68,18 @@ The code in this repository is released under the [MIT License](LICENSE).
 
 ### Third-party dependencies
 
-This tool uses [PyMuPDF](https://github.com/pymupdf/PyMuPDF), which is licensed under the
-**GNU AGPL-3.0** (or a commercial license from Artifex). `pdf2docx` also depends on PyMuPDF.
+JAP-T installs its Python packages from PyPI during setup; none of them are included in this
+repository. Most use permissive licenses (MIT, BSD, Apache-2.0) or the MPL-2.0 and LGPL-3.0.
+Two are stronger copyleft:
+
+- [PyMuPDF](https://github.com/pymupdf/PyMuPDF) is licensed under the **GNU AGPL-3.0**, or a
+  commercial license from Artifex.
+- [pdf2docx](https://github.com/ArtifexSoftware/pdf2docx) 0.5.8 is licensed under the **GNU GPL-3.0**.
+
 The MIT license covers only the code in this repository. Anyone who redistributes this tool
-together with PyMuPDF, or offers it as a network service, must comply with the AGPL-3.0 terms
-for the combined work, or obtain a commercial PyMuPDF license.
+together with these packages (for example as a bundled program), or offers it as a network
+service, must comply with the AGPL-3.0 for the combined work, or obtain a commercial PyMuPDF
+license.
+
+Ghostscript (AGPL-3.0), Tesseract (Apache-2.0) and LibreOffice (MPL-2.0) are separate programs
+that you install yourself; JAP-T runs them but does not include them.

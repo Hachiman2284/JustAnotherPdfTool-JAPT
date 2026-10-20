@@ -3,6 +3,7 @@ from __future__ import annotations
 import builtins
 import os
 import stat
+import subprocess
 import sys
 from pathlib import Path
 
@@ -192,11 +193,14 @@ def test_find_program_nothing_installed(fake_windows) -> None:
 # --- setup check ------------------------------------------------------------
 
 
-def _patch_tools(monkeypatch, *, tesseract=None, gs=None, soffice=None, word=None, missing=()) -> None:
+def _patch_tools(
+    monkeypatch, *, tesseract=None, gs=None, gs_version=(10, 8, 0), soffice=None, word=None, missing=()
+) -> None:
     import importlib.util
 
     monkeypatch.setattr(pdfsuite, "_find_tesseract", lambda: tesseract)
     monkeypatch.setattr(pdfsuite, "_find_ghostscript", lambda: gs)
+    monkeypatch.setattr(pdfsuite, "_ghostscript_version", lambda path: gs_version)
     monkeypatch.setattr(pdfsuite, "_find_soffice", lambda: soffice)
     monkeypatch.setattr(pdfsuite, "_word_installed", lambda: word)
     monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a: None if name in missing else object())
@@ -218,6 +222,57 @@ def test_check_setup_missing_programs_only_warn(monkeypatch, capsys) -> None:
     assert "Tesseract OCR not found" in out
     assert "Ghostscript not found" in out
     assert "neither was found" in out
+
+
+@pytest.mark.parametrize(
+    ("version", "status", "text"),
+    [
+        ((10, 8, 0), "[ OK ]", "Ghostscript 10.08.0: /g"),
+        ((10, 9, 1), "[ OK ]", "Ghostscript 10.09.1: /g"),
+        ((11, 0, 0), "[ OK ]", "Ghostscript 11.00.0: /g"),
+        ((10, 7, 1), "[WARN]", "Ghostscript 10.07.1 is out of date. Versions before 10.08.0 have known security"),
+        ((9, 56, 1), "[WARN]", "Ghostscript 9.56.1 is out of date"),
+        (None, "[WARN]", "its version could not be read. Make sure it is 10.08.0 or newer."),
+    ],
+)
+def test_check_setup_ghostscript_version(monkeypatch, capsys, version, status, text) -> None:
+    _patch_tools(monkeypatch, tesseract="/t", gs="/g", gs_version=version, soffice="/s")
+    assert pdfsuite.check_setup() == 0  # an old Ghostscript is a warning, not a failure
+    line = next(line for line in capsys.readouterr().out.splitlines() if "Ghostscript" in line)
+    assert line.startswith(status) and text in line
+
+
+@pytest.mark.parametrize(
+    ("stdout", "returncode", "expected"),
+    [
+        ("10.08.0\n", 0, (10, 8, 0)),
+        ("9.56\n", 0, (9, 56, 0)),
+        ("", 1, None),
+        ("10.08.0\n", 1, None),  # a version printed by a run that failed is not trusted
+        ("GPL Ghostscript\n", 0, None),
+    ],
+)
+def test_ghostscript_version_parsing(monkeypatch, stdout, returncode, expected) -> None:
+    def fake_run(cmd, **kwargs):
+        assert cmd == ["gswin64c.exe", "--version"]
+        return subprocess.CompletedProcess(cmd, returncode, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(pdfsuite.subprocess, "run", fake_run)
+    assert pdfsuite._ghostscript_version("gswin64c.exe") == expected
+
+
+def test_ghostscript_version_program_fails_to_start(monkeypatch) -> None:
+    def fake_run(cmd, **kwargs):
+        raise OSError("not a program")
+
+    monkeypatch.setattr(pdfsuite.subprocess, "run", fake_run)
+    assert pdfsuite._ghostscript_version("gswin64c.exe") is None
+
+
+@pytest.mark.skipif(pdfsuite._find_ghostscript() is None, reason="needs Ghostscript")
+def test_ghostscript_version_of_real_install() -> None:
+    version = pdfsuite._ghostscript_version(pdfsuite._find_ghostscript())
+    assert version is not None and version >= (9, 0, 0)
 
 
 def test_check_setup_word_needs_docx2pdf(monkeypatch, capsys) -> None:
