@@ -84,7 +84,7 @@ Tesseract only reads English unless you add more languages. To read other langua
 
 You only need to do this once.
 
-1. On the JAP-T GitHub page, click the green "Code" button, then "Download ZIP".
+1. On the JAP-T GitHub page, click the "Code" button above the list of files, then "Download ZIP".
 2. In your Downloads folder, right-click the ZIP file and choose "Extract All…". Pick a place to keep JAP-T, for example `C:\Tools`. This creates a folder such as `C:\Tools\JustAnotherPdfTool-JAPT-main`.
    JAP-T does not work from inside the ZIP file, so make sure you extract it first.
 3. Open the extracted folder and double-click `setupEnv.bat`.

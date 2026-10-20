@@ -20,7 +20,7 @@ A free PDF toolkit for Windows. You choose a job from a numbered menu and answer
 
 You need Windows 10 or 11 and Python 3.14, which is free. Python 3.11 to 3.13 also work. The [User Guide](docs/USER_GUIDE.md#2-what-you-need) shows exactly which installer to download.
 
-1. Click the green "Code" button on this page, then "Download ZIP".
+1. Click the "Code" button above the list of files on this page, then "Download ZIP".
 2. Right-click the downloaded ZIP file and choose "Extract All…".
 3. In the extracted folder, double-click `setupEnv.bat`. This only needs doing once and takes a few minutes.
 4. After that, double-click `start.bat` whenever you want to use JAP-T.
