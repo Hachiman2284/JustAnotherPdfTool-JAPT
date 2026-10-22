@@ -20,7 +20,7 @@ pdf2docx==0.5.8
 pdfminer.six==20260107
 pi_heif==1.4.0
 pikepdf==10.2.0
-pillow==12.3.0
+pillow==13.0.0
 pluggy==1.6.0
 pycparser==2.23
 Pygments==2.21.0
